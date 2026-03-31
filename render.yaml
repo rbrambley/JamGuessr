@@ -1,0 +1,12 @@
+services:
+  - type: web
+    name: jamguessr-backend
+    runtime: node
+    rootDir: .
+    buildCommand: npm install
+    startCommand: node server.js
+    envVars:
+      - key: YOUTUBE_API_KEY
+        sync: false
+      - key: ALLOWED_ORIGIN
+        sync: false

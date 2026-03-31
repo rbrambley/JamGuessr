@@ -1,0 +1,460 @@
+/* ── Reset / base ─────────────────────────────────────────────────────────── */
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+html {
+  min-height: 100%;
+  background: #0f0f1a;
+}
+
+body {
+  font-family: Arial, sans-serif;
+  position: relative;
+  z-index: 0;
+  min-height: 100vh;
+  background: transparent;
+  color: #f0f0f0;
+  padding: 24px;
+  max-width: 640px;
+  margin: 0 auto;
+}
+
+body::before {
+  content: "";
+  position: fixed;
+  inset: 0;
+  z-index: -2;
+  pointer-events: none;
+  background: url("../assets/dj-kit-bg.svg") center 35% / cover no-repeat;
+  opacity: 0.72;
+}
+
+body::after {
+  content: "";
+  position: fixed;
+  inset: 0;
+  z-index: -1;
+  pointer-events: none;
+  background: linear-gradient(180deg, rgba(15, 15, 26, 0.46) 0%, rgba(15, 15, 26, 0.62) 100%);
+}
+
+/* ── Typography ───────────────────────────────────────────────────────────── */
+h1 {
+  font-size: 2.2rem;
+  letter-spacing: 0.05em;
+  color: #f97316;  /* orange accent */
+}
+
+.tagline {
+  font-style: italic;
+  color: #aaa;
+  margin-bottom: 32px;
+}
+
+h2 { margin: 24px 0 12px; font-size: 1.3rem; color: #fbbf24; }
+h3 { margin: 16px 0 8px; font-size: 1.1rem; }
+
+/* ── Sections ─────────────────────────────────────────────────────────────── */
+section {
+  background: rgba(26, 26, 46, 0.28);
+  border: 1px solid rgba(112, 126, 175, 0.42);
+  backdrop-filter: blur(4px);
+  border-radius: 8px;
+  padding: 20px;
+  margin-bottom: 20px;
+}
+
+/* ── Inputs ───────────────────────────────────────────────────────────────── */
+input {
+  display: block;
+  width: 100%;
+  padding: 10px 12px;
+  margin: 8px 0;
+  background: #12121e;
+  border: 1px solid #444;
+  border-radius: 6px;
+  color: #f0f0f0;
+  font-size: 1rem;
+}
+
+input::placeholder { color: #666; }
+input:focus { outline: none; border-color: #f97316; }
+
+/* ── Buttons ──────────────────────────────────────────────────────────────── */
+button {
+  padding: 10px 20px;
+  margin-top: 10px;
+  background: #f97316;
+  color: #fff;
+  border: none;
+  border-radius: 6px;
+  font-size: 1rem;
+  cursor: pointer;
+  transition: background 0.2s;
+}
+
+button:hover { background: #ea6c10; }
+button:disabled { background: #555; cursor: not-allowed; }
+
+.secondary-btn {
+  background: #2b2f45;
+  border: 1px solid #3d4565;
+}
+
+.secondary-btn:hover {
+  background: #373f5c;
+}
+
+.secondary-btn:disabled {
+  background: #2b2f45;
+  color: #d0d6ea;
+  opacity: 1;
+  cursor: default;
+}
+
+.host-btn {
+  background: #7c3aed;
+  margin-top: 16px;
+}
+.host-btn:hover { background: #6d28d9; }
+
+/* ── Views ────────────────────────────────────────────────────────────────── */
+.view { display: none; }
+
+/* ── Lists ────────────────────────────────────────────────────────────────── */
+ul, ol { padding-left: 20px; }
+li { margin: 6px 0; line-height: 1.5; }
+
+/* ── Room code ────────────────────────────────────────────────────────────── */
+#room-code-display {
+  font-size: 1.5rem;
+  font-weight: bold;
+  color: #f97316;
+  margin-bottom: 8px;
+  letter-spacing: 0.1em;
+}
+
+#lobby-waiting-text {
+  color: #b7bfd8;
+  margin: 8px 0 6px;
+}
+
+/* ── Song row ─────────────────────────────────────────────────────────────── */
+.song-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 10px;
+}
+
+.song-row span { min-width: 60px; color: #aaa; }
+.song-row input { margin: 0; }
+
+.song-search-row {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
+.song-search-row input {
+  margin: 0;
+  flex: 1;
+}
+
+.song-search-row button {
+  margin-top: 0;
+  white-space: nowrap;
+}
+
+.song-search-results {
+  margin-top: 10px;
+  display: grid;
+  gap: 8px;
+}
+
+.song-search-item {
+  width: 100%;
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  text-align: left;
+  background: rgba(26, 26, 46, 0.5);
+  border: 1px solid #2d2d4a;
+  border-radius: 8px;
+  padding: 8px;
+}
+
+.song-search-item-selected {
+  border-color: #f97316;
+  box-shadow: inset 0 0 0 1px #f97316;
+  background: rgba(249, 115, 22, 0.14);
+}
+
+.song-search-thumb {
+  width: 72px;
+  height: 40px;
+  object-fit: cover;
+  border-radius: 4px;
+}
+
+.song-search-meta {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.song-search-title {
+  font-size: 0.9rem;
+  color: #e2e8f0;
+}
+
+.song-search-channel {
+  font-size: 0.78rem;
+  color: #94a3b8;
+}
+
+.song-search-selected {
+  margin-top: 10px;
+  color: #86efac;
+  font-size: 0.9rem;
+}
+
+/* ── Playing view ─────────────────────────────────────────────────────────── */
+#current-song-label {
+  font-size: 1.4rem;
+  margin: 12px 0;
+  color: #fbbf24;
+}
+
+#guess-buttons { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 12px; }
+
+#guess-feedback {
+  margin-top: 12px;
+  color: #4ade80;
+  font-weight: bold;
+}
+
+/* ── Status bar ───────────────────────────────────────────────────────────── */
+#status {
+  min-height: 24px;
+  color: #aaa;
+  font-size: 0.9rem;
+  margin-bottom: 8px;
+}
+
+.hidden { display: none; }
+
+.meta-panel {
+  border: 1px solid #2a2f45;
+  background: #141a2b;
+  border-radius: 8px;
+  padding: 12px;
+  margin: 8px 0 16px;
+}
+
+#player-name-display {
+  color: #f8fafc;
+  font-weight: bold;
+}
+
+#round-display {
+  color: #fbbf24;
+  margin-top: 4px;
+}
+
+#points-display {
+  color: #4ade80;
+  margin-top: 2px;
+}
+
+.meta-label {
+  color: #9aa7c7;
+  font-size: 0.9rem;
+  margin-top: 8px;
+}
+
+.player-button-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 10px;
+}
+
+.player-chip {
+  margin-top: 0;
+  padding: 8px 12px;
+  font-size: 0.9rem;
+}
+
+.player-chip-active {
+  border-color: #f97316;
+  box-shadow: inset 0 0 0 1px #f97316;
+}
+
+.player-chip-winner {
+  border-color: #fbbf24;
+  box-shadow: inset 0 0 0 1px #fbbf24;
+  color: #fbbf24;
+  font-weight: 700;
+}
+
+#round-display.game-over {
+  color: #f87171;
+  font-weight: 700;
+}
+
+/* ── Playing / Playlist view ──────────────────────────────────────────────── */
+
+.now-playing-banner {
+  background: #1e1e33;
+  border-left: 4px solid #f97316;
+  border-radius: 6px;
+  padding: 12px 16px;
+  margin-bottom: 8px;
+  font-size: 1.1rem;
+}
+
+.youtube-player-shell {
+  margin: 10px 0 14px;
+  border: 1px solid #303650;
+  border-radius: 8px;
+  background: rgba(20, 26, 43, 0.55);
+  padding: 8px;
+}
+
+#youtube-player {
+  width: 100%;
+  aspect-ratio: 16 / 9;
+  background: #000;
+  border-radius: 6px;
+  overflow: hidden;
+}
+
+.youtube-player-status {
+  margin-top: 6px;
+  font-size: 0.82rem;
+  color: #94a3b8;
+}
+
+.now-playing-label {
+  color: #f97316;
+  font-weight: 700;
+  margin-right: 6px;
+}
+
+.all-songs-done {
+  color: #fbbf24;
+  font-weight: 700;
+}
+
+.guess-hint {
+  color: #94a3b8;
+  font-size: 0.85rem;
+  margin: 4px 0 12px;
+}
+
+.playlist-round-group {
+  border: 1px solid #303650;
+  border-radius: 10px;
+  padding: 10px;
+  margin-bottom: 12px;
+  background: rgba(20, 26, 43, 0.5);
+}
+
+.playlist-round-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 10px;
+  color: #fbbf24;
+  font-weight: 700;
+  font-size: 0.95rem;
+}
+
+.playlist-round-count {
+  color: #94a3b8;
+  font-weight: 500;
+  font-size: 0.85rem;
+}
+
+.current-round-badge {
+  margin-left: auto;
+  margin-right: 8px;
+  background: #f97316;
+  color: #fff;
+  border-radius: 999px;
+  padding: 2px 10px;
+  font-size: 0.74rem;
+  font-weight: 700;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+}
+
+.playlist-song {
+  background: #1a1a2e;
+  border: 1px solid #2d2d4a;
+  border-radius: 8px;
+  padding: 12px 14px;
+  margin-bottom: 10px;
+}
+
+.playlist-song-title {
+  font-weight: 600;
+  font-size: 1rem;
+  margin-bottom: 8px;
+  color: #e2e8f0;
+}
+
+.playlist-song-note {
+  font-size: 0.82rem;
+  color: #64748b;
+  font-style: italic;
+}
+
+.playlist-song-guesses {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.guess-btn {
+  background: #2d2d4a;
+  color: #e2e8f0;
+  border: 1px solid #3d3d5c;
+  border-radius: 20px;
+  padding: 4px 14px;
+  font-size: 0.85rem;
+  cursor: pointer;
+  transition: background 0.15s, border-color 0.15s;
+}
+
+.guess-btn:hover {
+  background: #3a3a5a;
+  border-color: #f97316;
+}
+
+.guess-btn-selected {
+  background: #f97316;
+  border-color: #f97316;
+  color: #fff;
+  font-weight: 600;
+}
+
+.guess-progress {
+  margin-top: 10px;
+  color: #94a3b8;
+  font-size: 0.9rem;
+}
+
+.round-embedded-controls {
+  margin-top: 4px;
+}
+
+.final-actions {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.final-actions button {
+  margin-top: 10px;
+}

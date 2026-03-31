@@ -1,0 +1,78 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>JamGuessr</title>
+  <link rel="stylesheet" href="css/styles.css">
+</head>
+<body>
+
+  <h1>JamGuessr</h1>
+  <p class="tagline">Whose song is it anyway?</p>
+
+  <section>
+    <h2>Create Room</h2>
+    <input id="host-name" placeholder="Your name">
+    <input id="max-rounds" type="number" min="1" value="3" aria-label="Maximum rounds" title="Maximum rounds">
+    <button id="create-room-btn">Create Room</button>
+  </section>
+
+  <section>
+    <h2>Join Room</h2>
+    <input id="player-name" placeholder="Your name">
+    <input id="room-code" placeholder="Room code">
+    <button id="join-room-btn">Join Room</button>
+  </section>
+
+  <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-firestore-compat.js"></script>
+  <script src="js/firebase-config.js"></script>
+  <script src="js/api.js"></script>
+  <script>
+    function attachHandlers() {
+      const createBtn = document.getElementById("create-room-btn");
+      const joinBtn = document.getElementById("join-room-btn");
+      
+      if (createBtn) {
+        createBtn.onclick = async () => {
+          try {
+            const name = document.getElementById("host-name").value.trim();
+            const rounds = parseInt(document.getElementById("max-rounds").value);
+            if (!name) { alert("Enter your name"); return; }
+            const roomId = await createRoom(name, rounds);
+            localStorage.setItem("jamguessr_roomId", roomId);
+            window.location.href = "game.html";
+          } catch (e) {
+            console.error("Error:", e);
+            alert("Error: " + e.message);
+          }
+        };
+      }
+
+      if (joinBtn) {
+        joinBtn.onclick = async () => {
+          try {
+            const name = document.getElementById("player-name").value.trim();
+            const code = document.getElementById("room-code").value.trim().toUpperCase();
+            if (!name || !code) { alert("Enter your name and room code"); return; }
+            const roomId = await joinRoom(code, name);
+            localStorage.setItem("jamguessr_roomId", roomId);
+            window.location.href = "game.html";
+          } catch (e) {
+            console.error("Error:", e);
+            alert(e.message);
+          }
+        };
+      }
+    }
+    
+    if (document.readyState === "loading") {
+      document.addEventListener("DOMContentLoaded", attachHandlers);
+    } else {
+      attachHandlers();
+    }
+  </script>
+
+</body>
+</html>
