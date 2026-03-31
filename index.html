@@ -11,9 +11,15 @@
   <div class="app-shell">
     <h1>JamGuessr</h1>
     <p class="tagline">Whose song is it anyway?</p>
+    <div class="app-hero-art" aria-hidden="true">
+      <img class="app-graphic app-graphic-hero" src="assets/dj-kit-bg.svg" alt="" loading="eager" decoding="async">
+    </div>
 
     <section>
       <h2>Create Room</h2>
+      <div class="view-art" aria-hidden="true">
+        <img class="app-graphic app-graphic-inline" src="assets/dj-kit-bg.svg" alt="" loading="lazy" decoding="async">
+      </div>
       <input id="host-name" placeholder="Your name">
       <input id="max-rounds" type="number" min="1" value="3" aria-label="Maximum rounds" title="Maximum rounds">
       <button id="create-room-btn">Create Room</button>
@@ -21,6 +27,9 @@
 
     <section>
       <h2>Join Room</h2>
+      <div class="view-art" aria-hidden="true">
+        <img class="app-graphic app-graphic-inline" src="assets/dj-kit-bg.svg" alt="" loading="lazy" decoding="async">
+      </div>
       <input id="player-name" placeholder="Your name">
       <input id="room-code" placeholder="Room code">
       <button id="join-room-btn">Join Room</button>
