@@ -356,6 +356,17 @@ li { margin: 6px 0; line-height: 1.5; }
   border-radius: 8px;
   background: rgba(20, 26, 43, 0.55);
   padding: 8px;
+  position: relative;
+}
+
+.youtube-player-locked::after {
+  content: "";
+  position: absolute;
+  inset: 8px;
+  border-radius: 6px;
+  background: transparent;
+  z-index: 3;
+  cursor: not-allowed;
 }
 
 #youtube-player {

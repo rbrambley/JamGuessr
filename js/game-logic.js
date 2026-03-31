@@ -356,30 +356,41 @@ function renderSongInputs(currentRound, maxRounds) {
   }
 
   container.innerHTML = `
-    <div class="song-row">
-      <span>Round ${currentRound}/${maxRounds}:</span>
-      <div class="song-search-row" style="width:100%">
-        <input id="song-search-query" placeholder="Search YouTube song title + artist" required>
-        <button id="song-search-btn" type="button" class="secondary-btn">Search</button>
+    <div id="song-search-block">
+      <div class="song-row">
+        <span>Round ${currentRound}/${maxRounds}:</span>
+        <div class="song-search-row" style="width:100%">
+          <input id="song-search-query" placeholder="Search YouTube song title + artist" required>
+          <button id="song-search-btn" type="button" class="secondary-btn">Search</button>
+        </div>
       </div>
+      <div id="song-search-results" class="song-search-results"></div>
     </div>
-    <div id="song-search-results" class="song-search-results"></div>
     <div id="song-search-selected" class="song-search-selected"></div>
   `;
 
+  const searchBlockEl = document.getElementById("song-search-block");
   const resultsEl = document.getElementById("song-search-results");
   const selectedEl = document.getElementById("song-search-selected");
   const queryEl = document.getElementById("song-search-query");
   const searchBtn = document.getElementById("song-search-btn");
 
-  if (pickingSelectedSong && selectedEl) {
-    selectedEl.textContent = `Selected: ${pickingSelectedSong.title} - ${pickingSelectedSong.artist}`;
+  if (pickingSelectedSong) {
+    if (selectedEl) {
+      selectedEl.textContent = `Selected: ${pickingSelectedSong.title} - ${pickingSelectedSong.artist}. Click Submit Songs to lock it in.`;
+    }
+    if (searchBlockEl) {
+      searchBlockEl.style.display = "none";
+    }
   }
 
   function selectSearchResult(item, btnEl) {
     pickingSelectedSong = item;
     if (selectedEl) {
-      selectedEl.textContent = `Selected: ${item.title} - ${item.artist}`;
+      selectedEl.textContent = `Selected: ${item.title} - ${item.artist}. Click Submit Songs to lock it in.`;
+    }
+    if (searchBlockEl) {
+      searchBlockEl.style.display = "none";
     }
     document.querySelectorAll(".song-search-item").forEach(el => el.classList.remove("song-search-item-selected"));
     if (btnEl) btnEl.classList.add("song-search-item-selected");
@@ -557,7 +568,22 @@ function renderPlayingView(room, isHost) {
   renderNowPlayingBanner(room);
   renderMasterPlaylist(room);
   renderHostPlayingControls(room, isHost);
+  setYouTubeInteractionLock(isHost);
   applyRoomPlayback(room);
+}
+
+function setYouTubeInteractionLock(isHost) {
+  const shell = document.querySelector(".youtube-player-shell");
+  if (!shell) return;
+
+  shell.classList.toggle("youtube-player-locked", !isHost);
+
+  const statusEl = document.getElementById("youtube-player-status");
+  if (!statusEl) return;
+
+  if (!isHost && !statusEl.textContent) {
+    statusEl.textContent = "Playback is host-controlled to keep everyone in sync.";
+  }
 }
 
 function renderNowPlayingBanner(room) {
