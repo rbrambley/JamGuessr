@@ -24,18 +24,32 @@ This project uses [Firebase Firestore](https://firebase.google.com/) for real-ti
 
 1. Create a free Firebase project at <https://console.firebase.google.com/>
 2. Enable **Cloud Firestore** (start in test mode for development)
-3. Copy your project config into `js/firebase-config.js`:
+3. Set your Firebase config at runtime (before `js/firebase-config.js` loads) in both pages.
 
-```js
-const firebaseConfig = {
-  apiKey: "YOUR_API_KEY",
-  authDomain: "YOUR_PROJECT.firebaseapp.com",
-  projectId: "YOUR_PROJECT_ID",
-  storageBucket: "YOUR_PROJECT.appspot.com",
-  messagingSenderId: "YOUR_SENDER_ID",
-  appId: "YOUR_APP_ID"
-};
+If only your API key is changing, you can set just this and use the built-in JamGuessr defaults:
+
+```html
+<script>
+  window.__JAMGUESSR_FIREBASE_API_KEY__ = "YOUR_API_KEY";
+</script>
 ```
+
+Or set the full config object:
+
+```html
+<script>
+  window.__JAMGUESSR_FIREBASE_CONFIG__ = {
+    apiKey: "YOUR_API_KEY",
+    authDomain: "YOUR_PROJECT.firebaseapp.com",
+    projectId: "YOUR_PROJECT_ID",
+    storageBucket: "YOUR_PROJECT.appspot.com",
+    messagingSenderId: "YOUR_SENDER_ID",
+    appId: "YOUR_APP_ID"
+  };
+</script>
+```
+
+4. `js/firebase-config.js` now reads this runtime object and will throw if any fields are missing.
 
 ### 2. YouTube Search Backend
 
