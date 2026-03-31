@@ -66,14 +66,14 @@ body {
 }
 
 .app-graphic-chip {
-  width: 74px;
-  height: 44px;
+  width: 96px;
+  height: 58px;
   object-fit: cover;
   object-position: center;
   border-radius: 10px;
   border: 1px solid rgba(130, 149, 193, 0.22);
   background: rgba(15, 23, 42, 0.55);
-  opacity: 0.86;
+  opacity: 0.9;
 }
 
 .app-header-top {
@@ -474,14 +474,6 @@ li { margin: 8px 0; line-height: 1.5; }
   font-weight: bold;
 }
 
-/* ── Status bar ───────────────────────────────────────────────────────────── */
-#status {
-  min-height: 24px;
-  color: #b9c6e6;
-  font-size: 0.87rem;
-  margin-top: 6px;
-}
-
 .hidden { display: none; }
 
 .meta-panel {
@@ -780,8 +772,8 @@ li { margin: 8px 0; line-height: 1.5; }
   }
 
   .app-graphic-chip {
-    width: 60px;
-    height: 38px;
+    width: 82px;
+    height: 50px;
   }
 
   h1 {
