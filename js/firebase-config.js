@@ -15,3 +15,10 @@ const db = firebase.firestore();
 // For GitHub Pages + separate backend hosting, replace with your full backend URL,
 // for example: "https://your-backend.example.com/api/youtube-search"
 const YOUTUBE_SEARCH_ENDPOINT = "https://jamguessr-backend.onrender.com/api/youtube-search";
+const YOUTUBE_BACKEND_HEALTH = "https://jamguessr-backend.onrender.com/health";
+
+// Wake the Render free-tier backend immediately so it's ready before the user searches.
+// Render spins down after inactivity; this first request triggers the cold start early.
+(function pingBackend() {
+  fetch(YOUTUBE_BACKEND_HEALTH).catch(() => {});
+})();

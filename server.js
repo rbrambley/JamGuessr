@@ -86,7 +86,7 @@ function setCachedResults(query, items) {
   });
 }
 
-async function handleYouTubeSearch(reqUrl, res) {
+async function handleYouTubeSearch(req, reqUrl, res) {
   const query = reqUrl.searchParams.get("q") || "";
   const normalizedQuery = normalizeQuery(query);
 
@@ -140,6 +140,10 @@ async function handleYouTubeSearch(reqUrl, res) {
   }
 }
 
+function handleHealth(req, res) {
+  sendJson(req, res, 200, { ok: true });
+}
+
 function resolveFilePath(requestPath) {
   const safePath = path.normalize(requestPath).replace(/^([.][.][/\\])+/, "");
   const relativePath = safePath === "/" ? "index.html" : safePath.replace(/^[/\\]+/, "");
@@ -148,7 +152,7 @@ function resolveFilePath(requestPath) {
   return filePath;
 }
 
-function serveStatic(reqUrl, res) {
+function serveStatic(req, reqUrl, res) {
   const filePath = resolveFilePath(reqUrl.pathname);
   if (!filePath) {
     res.writeHead(403);
@@ -169,10 +173,7 @@ function serveStatic(reqUrl, res) {
 
   const ext = path.extname(finalPath).toLowerCase();
   const mimeType = MIME_TYPES[ext] || "application/octet-stream";
-  res.writeHead(200, {
-    "Content-Type": mimeType,
-    ...corsHeaders(req)
-  });
+  res.writeHead(200, { "Content-Type": mimeType });
   fs.createReadStream(finalPath).pipe(res);
 }
 
@@ -184,6 +185,11 @@ const server = http.createServer(async (req, res) => {
       ...corsHeaders(req)
     });
     res.end();
+    return;
+  }
+
+  if (req.method === "GET" && reqUrl.pathname === "/health") {
+    handleHealth(req, res);
     return;
   }
 
