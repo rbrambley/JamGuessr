@@ -27,13 +27,40 @@ const MIME_TYPES = {
   ".txt": "text/plain; charset=utf-8"
 };
 
-function sendJson(res, statusCode, payload) {
+function normalizeOrigin(origin) {
+  return (origin || "").trim().replace(/\/+$/, "");
+}
+
+function resolveCorsOrigin(req) {
+  if (ALLOWED_ORIGIN === "*") return "*";
+
+  const requestOrigin = normalizeOrigin(req.headers.origin || "");
+  const allowedOrigins = ALLOWED_ORIGIN
+    .split(",")
+    .map(normalizeOrigin)
+    .filter(Boolean);
+
+  if (requestOrigin && allowedOrigins.includes(requestOrigin)) {
+    return requestOrigin;
+  }
+
+  return allowedOrigins[0] || "";
+}
+
+function corsHeaders(req) {
+  const origin = resolveCorsOrigin(req);
+  return {
+    "Access-Control-Allow-Origin": origin,
+    "Access-Control-Allow-Methods": "GET, OPTIONS",
+    "Access-Control-Allow-Headers": "Content-Type"
+  };
+}
+
+function sendJson(req, res, statusCode, payload) {
   res.writeHead(statusCode, {
     "Content-Type": "application/json; charset=utf-8",
     "Cache-Control": "no-store",
-    "Access-Control-Allow-Origin": ALLOWED_ORIGIN,
-    "Access-Control-Allow-Methods": "GET, OPTIONS",
-    "Access-Control-Allow-Headers": "Content-Type"
+    ...corsHeaders(req)
   });
   res.end(JSON.stringify(payload));
 }
@@ -64,18 +91,18 @@ async function handleYouTubeSearch(reqUrl, res) {
   const normalizedQuery = normalizeQuery(query);
 
   if (!YOUTUBE_API_KEY) {
-    sendJson(res, 500, { error: { message: "Server is missing YOUTUBE_API_KEY." } });
+    sendJson(req, res, 500, { error: { message: "Server is missing YOUTUBE_API_KEY." } });
     return;
   }
 
   if (normalizedQuery.length < SEARCH_MIN_QUERY_LENGTH) {
-    sendJson(res, 400, { error: { message: `Search must be at least ${SEARCH_MIN_QUERY_LENGTH} characters.` } });
+    sendJson(req, res, 400, { error: { message: `Search must be at least ${SEARCH_MIN_QUERY_LENGTH} characters.` } });
     return;
   }
 
   const cachedItems = getCachedResults(normalizedQuery);
   if (cachedItems) {
-    sendJson(res, 200, { items: cachedItems, cached: true });
+    sendJson(req, res, 200, { items: cachedItems, cached: true });
     return;
   }
 
@@ -92,7 +119,7 @@ async function handleYouTubeSearch(reqUrl, res) {
     const data = await response.json();
 
     if (!response.ok) {
-      sendJson(res, response.status, {
+      sendJson(req, res, response.status, {
         error: { message: data?.error?.message || "YouTube search failed." }
       });
       return;
@@ -107,9 +134,9 @@ async function handleYouTubeSearch(reqUrl, res) {
     })).filter(item => item.youtubeVideoId);
 
     setCachedResults(normalizedQuery, items);
-    sendJson(res, 200, { items, cached: false });
+    sendJson(req, res, 200, { items, cached: false });
   } catch (error) {
-    sendJson(res, 500, { error: { message: error.message || "Unexpected server error." } });
+    sendJson(req, res, 500, { error: { message: error.message || "Unexpected server error." } });
   }
 }
 
@@ -144,9 +171,7 @@ function serveStatic(reqUrl, res) {
   const mimeType = MIME_TYPES[ext] || "application/octet-stream";
   res.writeHead(200, {
     "Content-Type": mimeType,
-    "Access-Control-Allow-Origin": ALLOWED_ORIGIN,
-    "Access-Control-Allow-Methods": "GET, OPTIONS",
-    "Access-Control-Allow-Headers": "Content-Type"
+    ...corsHeaders(req)
   });
   fs.createReadStream(finalPath).pipe(res);
 }
@@ -156,21 +181,19 @@ const server = http.createServer(async (req, res) => {
 
   if (req.method === "OPTIONS") {
     res.writeHead(204, {
-      "Access-Control-Allow-Origin": ALLOWED_ORIGIN,
-      "Access-Control-Allow-Methods": "GET, OPTIONS",
-      "Access-Control-Allow-Headers": "Content-Type"
+      ...corsHeaders(req)
     });
     res.end();
     return;
   }
 
   if (req.method === "GET" && reqUrl.pathname === "/api/youtube-search") {
-    await handleYouTubeSearch(reqUrl, res);
+    await handleYouTubeSearch(req, reqUrl, res);
     return;
   }
 
   if (req.method === "GET") {
-    serveStatic(reqUrl, res);
+    serveStatic(req, reqUrl, res);
     return;
   }
 
