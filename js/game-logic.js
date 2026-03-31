@@ -120,6 +120,9 @@ let presenceHeartbeatTimer = null;
 let hostElectionTimer = null;
 let lastSeenHostChangeAt = 0;
 let isInitialRoomRender = true;
+let hostPlaybackSyncTimer = null;
+let hostPlaybackSyncInFlight = false;
+let suppressHostPlaybackBroadcastUntil = 0;
 
 // -- Room listeners ------------------------------------------------------------
 
@@ -165,6 +168,10 @@ function cleanupLocalGameState() {
   if (hostElectionTimer) {
     clearInterval(hostElectionTimer);
     hostElectionTimer = null;
+  }
+  if (hostPlaybackSyncTimer) {
+    clearInterval(hostPlaybackSyncTimer);
+    hostPlaybackSyncTimer = null;
   }
   localStorage.removeItem("jamguessr_roomId");
   sessionStorage.removeItem("jamguessr_playerId");
@@ -286,6 +293,7 @@ async function ensureYouTubePlayer() {
           if (evt?.data === YT.PlayerState.ENDED) {
             handleHostAutoplayAdvance();
           }
+          handleHostPlaybackStateChange(evt?.data);
         }
       }
     });
@@ -297,6 +305,80 @@ async function ensureYouTubePlayer() {
 function isCurrentPlayerHost() {
   const me = players.find(p => p.id === currentPlayerId);
   return !!me?.isHost;
+}
+
+function mapYouTubeStateToPlaybackStatus(ytState) {
+  if (!window.YT) return "paused";
+  if (ytState === YT.PlayerState.PLAYING || ytState === YT.PlayerState.BUFFERING) return "playing";
+  return "paused";
+}
+
+async function broadcastHostPlaybackState(force = false) {
+  if (!isCurrentPlayerHost()) return;
+  if (!currentRoom || currentRoom.status !== "playing" || currentRoom.allSongsPlayed) return;
+  if (!ytPlayer || !ytPlayerReady || hostPlaybackSyncInFlight) return;
+  if (!force && Date.now() < suppressHostPlaybackBroadcastUntil) return;
+
+  const roundSongs = getSongsForRound(currentRoom.currentRound);
+  const song = roundSongs[currentRoom.currentSongIndex];
+  if (!song?.youtubeVideoId) return;
+
+  let playerState;
+  let currentSec;
+  try {
+    playerState = ytPlayer.getPlayerState();
+    currentSec = Math.max(0, Number(ytPlayer.getCurrentTime?.() || 0));
+  } catch (e) {
+    return;
+  }
+
+  const status = mapYouTubeStateToPlaybackStatus(playerState);
+  const startAtMs = status === "playing"
+    ? Date.now() - Math.floor(currentSec * 1000)
+    : Date.now();
+
+  hostPlaybackSyncInFlight = true;
+  try {
+    await syncRoomPlayback(roomId, {
+      videoId: song.youtubeVideoId,
+      round: currentRoom.currentRound,
+      songIndex: currentRoom.currentSongIndex,
+      status,
+      pausedAtSec: currentSec,
+      startAtMs,
+      version: Date.now()
+    });
+  } catch (e) {
+    console.error("Host playback sync failed", e);
+  } finally {
+    hostPlaybackSyncInFlight = false;
+  }
+}
+
+function updateHostPlaybackSyncLoop(room, isHost) {
+  const shouldRun = !!isHost && room?.status === "playing" && !room?.allSongsPlayed;
+  if (!shouldRun) {
+    if (hostPlaybackSyncTimer) {
+      clearInterval(hostPlaybackSyncTimer);
+      hostPlaybackSyncTimer = null;
+    }
+    return;
+  }
+
+  if (hostPlaybackSyncTimer) return;
+
+  hostPlaybackSyncTimer = setInterval(() => {
+    broadcastHostPlaybackState(false);
+  }, 3000);
+}
+
+function handleHostPlaybackStateChange(ytState) {
+  if (!isCurrentPlayerHost()) return;
+  if (!currentRoom || currentRoom.status !== "playing") return;
+  if (Date.now() < suppressHostPlaybackBroadcastUntil) return;
+  if (!window.YT || ytState === YT.PlayerState.UNSTARTED) return;
+
+  broadcastHostPlaybackState(true);
 }
 
 async function handleHostAutoplayAdvance() {
@@ -354,16 +436,26 @@ async function applyRoomPlayback(room) {
 
   clearPlaybackTimer();
   lastAppliedPlaybackVersion = playback.version;
+  if (isCurrentPlayerHost()) {
+    suppressHostPlaybackBroadcastUntil = Date.now() + 1600;
+  }
 
   const now = Date.now();
+  const status = playback.status || "playing";
   const startAtMs = playback.startAtMs || now;
-  const elapsedSec = Math.max(0, (now - startAtMs) / 1000);
-  const delayMs = Math.max(0, startAtMs - now);
+  const elapsedSec = status === "paused"
+    ? Math.max(0, Number(playback.pausedAtSec || 0))
+    : Math.max(0, (now - startAtMs) / 1000);
+  const delayMs = status === "paused" ? 0 : Math.max(0, startAtMs - now);
 
   if (statusEl) {
-    statusEl.textContent = delayMs > 0
-      ? `Starting in ${Math.ceil(delayMs / 1000)}...`
-      : "Playing";
+    if (status === "paused") {
+      statusEl.textContent = "Paused by host";
+    } else {
+      statusEl.textContent = delayMs > 0
+        ? `Starting in ${Math.ceil(delayMs / 1000)}...`
+        : "Playing";
+    }
   }
 
   player.cueVideoById({
@@ -376,8 +468,12 @@ async function applyRoomPlayback(room) {
       if (elapsedSec > 0.5) {
         player.seekTo(elapsedSec, true);
       }
-      player.playVideo();
-      if (statusEl) statusEl.textContent = "Playing";
+      if (status === "paused") {
+        player.pauseVideo();
+      } else {
+        player.playVideo();
+      }
+      if (statusEl && status === "playing") statusEl.textContent = "Playing";
     } catch (e) {
       if (statusEl) statusEl.textContent = "Playback blocked. Click player to start audio.";
     }
@@ -401,7 +497,8 @@ async function syncSongForEveryone(room, songIndex, startDelayMs = 1200) {
 
 async function advanceSongForEveryone(room, nextIndex) {
   await advanceSong(roomId, nextIndex);
-  await syncSongForEveryone(room, nextIndex, 1200);
+  const roomForSync = currentRoom || room;
+  await syncSongForEveryone(roomForSync, nextIndex, 1200);
 }
 
 // -- Routing by room status ----------------------------------------------------
@@ -439,6 +536,7 @@ function handleRoomUpdate(room) {
 
   currentRoom = room;
   const isHost = !!me.isHost;
+  updateHostPlaybackSyncLoop(room, isHost);
   renderMetaPanel(room);
 
   if (room.status === "playing") {
@@ -609,7 +707,8 @@ function renderSongInputs(currentRound, maxRounds) {
 
     const text = document.createElement("div");
     text.className = "song-search-selected-text";
-    text.textContent = `Selected: ${pickingSelectedSong.title} - ${pickingSelectedSong.artist}. Click Submit Songs to lock it in.`;
+    const artist = pickingSelectedSong.artist || "Unknown Artist";
+    text.textContent = `${pickingSelectedSong.title} - ${artist}`;
 
     const changeBtn = document.createElement("button");
     changeBtn.type = "button";
@@ -738,6 +837,19 @@ function renderSongInputs(currentRound, maxRounds) {
     submitBtn.style.display = "none";
     waitingMsg.style.display = "block";
     waitingMsg.textContent = "Waiting for other players to submit this round's song...";
+
+    if (searchBlockEl) searchBlockEl.style.display = "none";
+
+    const myRoundSong = getSongsForRound(currentRound).find(song => song.pickedBy === currentPlayerId);
+    if (selectedEl) {
+      if (myRoundSong?.title) {
+        const artist = myRoundSong.artist || "Unknown Artist";
+        selectedEl.innerHTML = `<div class="song-search-selected-text">${escapeHtml(myRoundSong.title)} - ${escapeHtml(artist)}</div>`;
+      } else {
+        selectedEl.innerHTML = "";
+      }
+    }
+    return;
   }
 
   submitBtn.onclick = async () => {
@@ -753,8 +865,9 @@ function renderSongInputs(currentRound, maxRounds) {
       submitBtn.style.display = "none";
       waitingMsg.style.display = "block";
       waitingMsg.textContent = "Waiting for other players to submit this round's song...";
-      pickingSelectedSong = null;
+      if (searchBlockEl) searchBlockEl.style.display = "none";
       pickingSearchResults = [];
+      renderSelectedSong();
 
       const isHost = players.find(p => p.id === currentPlayerId)?.isHost;
       if (isHost) watchForAllSubmissions();

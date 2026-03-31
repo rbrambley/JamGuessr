@@ -45,11 +45,37 @@ body {
 }
 
 .app-hero-art {
+  position: relative;
   margin: 8px 0 16px;
   border: 1px solid rgba(130, 149, 193, 0.24);
   border-radius: 16px;
   background: linear-gradient(135deg, rgba(24, 37, 64, 0.8), rgba(17, 24, 39, 0.5));
   overflow: hidden;
+}
+
+.home-hero-copy {
+  position: absolute;
+  inset: 0;
+  z-index: 2;
+  display: grid;
+  place-content: center;
+  text-align: center;
+  gap: 4px;
+  padding: 10px 14px;
+  background: linear-gradient(180deg, rgba(7, 12, 24, 0.22) 0%, rgba(7, 12, 24, 0.38) 100%);
+}
+
+.home-hero-copy h1 {
+  font-size: 1.95rem;
+  line-height: 1.02;
+  margin: 0;
+}
+
+.home-hero-copy .tagline {
+  margin: 0;
+  color: #deebff;
+  font-size: 1rem;
+  font-weight: 600;
 }
 
 .app-graphic {
@@ -62,7 +88,7 @@ body {
   max-height: 122px;
   object-fit: cover;
   object-position: center 36%;
-  opacity: 0.92;
+  opacity: 0.98;
 }
 
 .app-graphic-chip {
@@ -434,19 +460,27 @@ li { margin: 8px 0; line-height: 1.5; }
 
 .song-search-selected {
   margin-top: 10px;
-  color: #86efac;
+  color: #dbeafe;
   font-size: 0.9rem;
   display: grid;
   gap: 8px;
+  padding: 10px 12px;
+  border: 1px solid rgba(130, 149, 193, 0.28);
+  border-radius: 10px;
+  background: rgba(14, 22, 38, 0.45);
 }
 
 .song-search-selected-text {
   line-height: 1.4;
+  font-weight: 600;
+  color: #f8fafc;
 }
 
 .song-change-selection-btn {
   margin-top: 0;
   width: fit-content;
+  min-height: 30px;
+  padding: 6px 12px;
 }
 
 /* ── Playing view ─────────────────────────────────────────────────────────── */
