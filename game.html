@@ -8,64 +8,76 @@
 </head>
 <body>
 
-  <h1>JamGuessr</h1>
-  <div id="status"></div>
-  <div id="game-meta" class="meta-panel">
-    <div id="player-name-display"></div>
-    <div id="round-display"></div>
-    <div id="points-display"></div>
-    <div class="meta-label">Players and points</div>
-    <div id="all-player-buttons" class="player-button-row"></div>
-    <div id="meta-host-actions" class="meta-host-actions"></div>
-  </div>
-
-  <!-- LOBBY -->
-  <div id="view-lobby" class="view">
-    <h2>Lobby</h2>
-    <div id="room-code-display"></div>
-    <button id="copy-room-btn" class="secondary-btn">Copy Room Code</button>
-    <div id="lobby-waiting-text"></div>
-    <ul id="player-list"></ul>
-    <button id="start-game-btn">Start Game</button>
-  </div>
-
-  <!-- SONG PICKING -->
-  <div id="view-picking" class="view">
-    <h2>Pick Your Songs</h2>
-    <p>Each round, every player submits exactly one song.</p>
-    <div id="song-inputs"></div>
-    <button id="submit-songs-btn">Submit Songs</button>
-    <div id="waiting-msg" class="hidden">Waiting for other players...</div>
-  </div>
-
-  <!-- NOW PLAYING / GUESSING -->
-  <div id="view-playing" class="view">
-    <div id="now-playing-banner" class="now-playing-banner"></div>
-    <div class="youtube-player-shell">
-      <div id="youtube-player"></div>
-      <div id="youtube-player-status" class="youtube-player-status"></div>
+  <div class="app-shell">
+    <div class="app-header">
+      <h1>JamGuessr</h1>
+      <div id="status"></div>
     </div>
-    <p class="guess-hint">Guess who picked each song — you can change your answer any time before the reveal.</p>
-    <div id="playlist-songs"></div>
-    <div id="host-controls"></div>
-  </div>
 
-  <!-- ROUND REVEAL -->
-  <div id="view-reveal" class="view">
-    <h2>Round Results</h2>
-    <div id="round-results"></div>
-    <button id="next-round-btn">Next Round</button>
-  </div>
-
-  <!-- FINAL RESULTS -->
-  <div id="view-final" class="view">
-    <h2>Final Results</h2>
-    <h3>Full Playlist</h3>
-    <ul id="full-playlist"></ul>
-    <div class="final-actions">
-      <button id="play-again-btn">Play Again</button>
-      <button id="end-game-btn" class="secondary-btn">End Game</button>
+    <div id="game-meta" class="meta-panel">
+      <div id="player-name-display"></div>
+      <div id="round-display"></div>
+      <div id="points-display"></div>
+      <div class="meta-label">Players and points</div>
+      <div id="all-player-buttons" class="player-button-row"></div>
+      <div id="meta-host-actions" class="meta-host-actions"></div>
     </div>
+
+    <!-- LOBBY -->
+    <div id="view-lobby" class="view">
+      <h2>Lobby</h2>
+      <div id="room-code-display"></div>
+      <button id="copy-room-btn" class="secondary-btn">Copy Room Code</button>
+      <div id="lobby-waiting-text"></div>
+      <ul id="player-list"></ul>
+      <button id="start-game-btn">Start Game</button>
+    </div>
+
+    <!-- SONG PICKING -->
+    <div id="view-picking" class="view">
+      <h2>Pick Your Songs</h2>
+      <p>Each round, every player submits exactly one song.</p>
+      <div id="song-inputs"></div>
+      <button id="submit-songs-btn">Submit Songs</button>
+      <div id="waiting-msg" class="hidden">Waiting for other players...</div>
+    </div>
+
+    <!-- NOW PLAYING / GUESSING -->
+    <div id="view-playing" class="view">
+      <div id="now-playing-banner" class="now-playing-banner"></div>
+      <div class="youtube-player-shell">
+        <div id="youtube-player"></div>
+        <div id="youtube-player-status" class="youtube-player-status"></div>
+      </div>
+      <p class="guess-hint">Guess who picked each song - you can change your answer any time before the reveal.</p>
+      <div id="playlist-songs"></div>
+      <div id="host-controls"></div>
+    </div>
+
+    <!-- ROUND REVEAL -->
+    <div id="view-reveal" class="view">
+      <h2>Round Results</h2>
+      <div id="round-results"></div>
+      <button id="next-round-btn">Next Round</button>
+    </div>
+
+    <!-- FINAL RESULTS -->
+    <div id="view-final" class="view">
+      <h2>Final Results</h2>
+      <h3>Full Playlist</h3>
+      <ul id="full-playlist"></ul>
+      <div class="final-actions">
+        <button id="play-again-btn">Play Again</button>
+        <button id="end-game-btn" class="secondary-btn">End Game</button>
+      </div>
+    </div>
+
+    <nav class="mobile-tab-bar" aria-label="Game navigation">
+      <button type="button" class="mobile-tab" data-view="view-lobby">Lobby</button>
+      <button type="button" class="mobile-tab" data-view="view-picking">Pick</button>
+      <button type="button" class="mobile-tab" data-view="view-playing">Play</button>
+      <button type="button" class="mobile-tab" data-view="view-reveal">Results</button>
+    </nav>
   </div>
 
   <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>

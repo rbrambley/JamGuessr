@@ -8,22 +8,24 @@
 </head>
 <body>
 
-  <h1>JamGuessr</h1>
-  <p class="tagline">Whose song is it anyway?</p>
+  <div class="app-shell">
+    <h1>JamGuessr</h1>
+    <p class="tagline">Whose song is it anyway?</p>
 
-  <section>
-    <h2>Create Room</h2>
-    <input id="host-name" placeholder="Your name">
-    <input id="max-rounds" type="number" min="1" value="3" aria-label="Maximum rounds" title="Maximum rounds">
-    <button id="create-room-btn">Create Room</button>
-  </section>
+    <section>
+      <h2>Create Room</h2>
+      <input id="host-name" placeholder="Your name">
+      <input id="max-rounds" type="number" min="1" value="3" aria-label="Maximum rounds" title="Maximum rounds">
+      <button id="create-room-btn">Create Room</button>
+    </section>
 
-  <section>
-    <h2>Join Room</h2>
-    <input id="player-name" placeholder="Your name">
-    <input id="room-code" placeholder="Room code">
-    <button id="join-room-btn">Join Room</button>
-  </section>
+    <section>
+      <h2>Join Room</h2>
+      <input id="player-name" placeholder="Your name">
+      <input id="room-code" placeholder="Room code">
+      <button id="join-room-btn">Join Room</button>
+    </section>
+  </div>
 
   <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-firestore-compat.js"></script>

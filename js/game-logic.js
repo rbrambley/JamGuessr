@@ -6,6 +6,93 @@ function setView(id) {
   if (target) target.style.display = "block";
 }
 
+const STATUS_VIEW_ORDER = {
+  lobby: ["view-lobby"],
+  picking: ["view-lobby", "view-picking"],
+  playing: ["view-picking", "view-playing"],
+  reveal: ["view-playing", "view-reveal"],
+  finished: ["view-playing", "view-reveal", "view-final"]
+};
+
+const CANONICAL_STATUS_VIEW = {
+  lobby: "view-lobby",
+  picking: "view-picking",
+  playing: "view-playing",
+  reveal: "view-reveal",
+  finished: "view-final"
+};
+
+let lastRoomStatus = null;
+
+function getVisibleViewId() {
+  const visible = document.querySelector(".view[style*='display: block']");
+  return visible ? visible.id : null;
+}
+
+function updateMobileTabState(roomStatus, activeViewId) {
+  const allowed = STATUS_VIEW_ORDER[roomStatus] || [];
+  document.querySelectorAll(".mobile-tab").forEach(btn => {
+    const viewId = btn.dataset.view;
+    const isAllowed = allowed.includes(viewId);
+    btn.disabled = !isAllowed;
+    btn.classList.toggle("is-active", activeViewId === viewId);
+  });
+}
+
+function resolveTargetView(roomStatus, currentVisibleViewId) {
+  const allowed = STATUS_VIEW_ORDER[roomStatus] || [];
+  const fallback = CANONICAL_STATUS_VIEW[roomStatus] || "view-lobby";
+
+  if (!currentVisibleViewId) return fallback;
+  if (allowed.includes(currentVisibleViewId)) return currentVisibleViewId;
+  return fallback;
+}
+
+function renderViewById(viewId, room, isHost) {
+  switch (viewId) {
+    case "view-lobby":
+      resetPickingView();
+      renderLobby(players, room.code, isHost);
+      break;
+    case "view-picking":
+      renderSongInputs(room.currentRound, room.maxRounds);
+      break;
+    case "view-playing":
+      renderPlayingView(room, isHost);
+      break;
+    case "view-reveal":
+      renderRevealView(room, isHost);
+      break;
+    case "view-final":
+      renderFinalResults(players);
+      break;
+    default:
+      setView(CANONICAL_STATUS_VIEW[room.status] || "view-lobby");
+      break;
+  }
+}
+
+function setupMobileTabs() {
+  const buttons = document.querySelectorAll(".mobile-tab");
+  if (!buttons.length) return;
+
+  buttons.forEach(btn => {
+    btn.addEventListener("click", () => {
+      if (!currentRoom || btn.disabled) return;
+
+      const targetViewId = btn.dataset.view;
+      if (!targetViewId) return;
+
+      const me = players.find(p => p.id === currentPlayerId);
+      const isHost = !!me?.isHost;
+
+      setView(targetViewId);
+      updateMobileTabState(currentRoom.status, targetViewId);
+      renderViewById(targetViewId, currentRoom, isHost);
+    });
+  });
+}
+
 const POINTS_PER_CORRECT_GUESS = 1;
 const POINTS_FOR_PICKER_REVEAL = 1;
 
@@ -223,33 +310,16 @@ function handleRoomUpdate(room) {
   const isHost = !!me.isHost;
   renderMetaPanel(room);
 
-  switch (room.status) {
-    case "lobby":
-      resetPickingView();
-      setView("view-lobby");
-      renderLobby(players, room.code, isHost);
-      break;
+  const visibleViewId = getVisibleViewId();
+  const statusChanged = room.status !== lastRoomStatus;
+  const targetViewId = statusChanged
+    ? (CANONICAL_STATUS_VIEW[room.status] || "view-lobby")
+    : resolveTargetView(room.status, visibleViewId);
 
-    case "picking":
-      setView("view-picking");
-      renderSongInputs(room.currentRound, room.maxRounds);
-      break;
-
-    case "playing":
-      setView("view-playing");
-      renderPlayingView(room, isHost);
-      break;
-
-    case "reveal":
-      setView("view-reveal");
-      renderRevealView(room, isHost);
-      break;
-
-    case "finished":
-      setView("view-final");
-      renderFinalResults(players);
-      break;
-  }
+  setView(targetViewId);
+  updateMobileTabState(room.status, targetViewId);
+  renderViewById(targetViewId, room, isHost);
+  lastRoomStatus = room.status;
 }
 
 function resetPickingView() {
@@ -994,4 +1064,5 @@ async function renderFinalResults(players) {
 
 // -- Boot ----------------------------------------------------------------------
 
+setupMobileTabs();
 startListening();
