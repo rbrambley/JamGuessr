@@ -25,7 +25,7 @@ body::before {
   z-index: -2;
   pointer-events: none;
   background: url("../assets/dj-kit-bg.svg") center 35% / cover no-repeat;
-  opacity: 0.72;
+  opacity: 0.98;
 }
 
 body::after {
@@ -34,7 +34,7 @@ body::after {
   inset: 0;
   z-index: -1;
   pointer-events: none;
-  background: linear-gradient(180deg, rgba(15, 15, 26, 0.46) 0%, rgba(15, 15, 26, 0.62) 100%);
+  background: linear-gradient(180deg, rgba(15, 15, 26, 0.12) 0%, rgba(15, 15, 26, 0.24) 100%);
 }
 
 /* ── Typography ───────────────────────────────────────────────────────────── */
@@ -55,8 +55,9 @@ h3 { margin: 16px 0 8px; font-size: 1.1rem; }
 
 /* ── Sections ─────────────────────────────────────────────────────────────── */
 section {
-  background: rgba(26, 26, 46, 0.28);
-  border: 1px solid rgba(112, 126, 175, 0.42);
+  background: rgba(26, 26, 46, 0.06);
+  border: 1px solid rgba(112, 126, 175, 0.18);
+  -webkit-backdrop-filter: blur(4px);
   backdrop-filter: blur(4px);
   border-radius: 8px;
   padding: 20px;
@@ -214,7 +215,7 @@ li { margin: 6px 0; line-height: 1.5; }
   gap: 10px;
   align-items: center;
   text-align: left;
-  background: rgba(26, 26, 46, 0.5);
+  background: rgba(26, 26, 46, 0.24);
   border: 1px solid #2d2d4a;
   border-radius: 8px;
   padding: 8px;
@@ -282,7 +283,7 @@ li { margin: 6px 0; line-height: 1.5; }
 
 .meta-panel {
   border: 1px solid #2a2f45;
-  background: #141a2b;
+  background: rgba(20, 26, 43, 0.2);
   border-radius: 8px;
   padding: 12px;
   margin: 8px 0 16px;
@@ -342,7 +343,7 @@ li { margin: 6px 0; line-height: 1.5; }
 /* ── Playing / Playlist view ──────────────────────────────────────────────── */
 
 .now-playing-banner {
-  background: #1e1e33;
+  background: rgba(30, 30, 51, 0.42);
   border-left: 4px solid #f97316;
   border-radius: 6px;
   padding: 12px 16px;
@@ -354,7 +355,7 @@ li { margin: 6px 0; line-height: 1.5; }
   margin: 10px 0 14px;
   border: 1px solid #303650;
   border-radius: 8px;
-  background: rgba(20, 26, 43, 0.55);
+  background: rgba(20, 26, 43, 0.16);
   padding: 8px;
   position: relative;
 }
@@ -405,7 +406,7 @@ li { margin: 6px 0; line-height: 1.5; }
   border-radius: 10px;
   padding: 10px;
   margin-bottom: 12px;
-  background: rgba(20, 26, 43, 0.5);
+  background: rgba(20, 26, 43, 0.14);
 }
 
 .playlist-round-header {
@@ -438,7 +439,7 @@ li { margin: 6px 0; line-height: 1.5; }
 }
 
 .playlist-song {
-  background: #1a1a2e;
+  background: rgba(26, 26, 46, 0.22);
   border: 1px solid #2d2d4a;
   border-radius: 8px;
   padding: 12px 14px;
