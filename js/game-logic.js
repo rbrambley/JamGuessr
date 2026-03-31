@@ -376,7 +376,10 @@ function handleHostPlaybackStateChange(ytState) {
   if (!isCurrentPlayerHost()) return;
   if (!currentRoom || currentRoom.status !== "playing") return;
   if (Date.now() < suppressHostPlaybackBroadcastUntil) return;
-  if (!window.YT || ytState === YT.PlayerState.UNSTARTED) return;
+  if (!window.YT) return;
+  // Ignore transient states: UNSTARTED, CUED — only broadcast meaningful changes.
+  const { UNSTARTED, CUED } = YT.PlayerState;
+  if (ytState === UNSTARTED || ytState === CUED) return;
 
   broadcastHostPlaybackState(true);
 }
@@ -484,6 +487,22 @@ async function syncSongForEveryone(room, songIndex, startDelayMs = 1200) {
   const roundSongs = getSongsForRound(room.currentRound);
   const song = roundSongs[songIndex];
   if (!song?.youtubeVideoId) return;
+
+  // Load and play on the host's player directly — the host skips applyRoomPlayback
+  // so their player must be started here as the source of truth.
+  if (isCurrentPlayerHost()) {
+    try {
+      const player = await ensureYouTubePlayer();
+      if (player) {
+        // Suppress broadcast until after the video starts, otherwise the
+        // pre-play CUED/PAUSED state would overwrite the "playing" Firestore doc.
+        suppressHostPlaybackBroadcastUntil = Date.now() + startDelayMs + 2000;
+        player.loadVideoById({ videoId: song.youtubeVideoId, startSeconds: 0 });
+      }
+    } catch (e) {
+      console.error("Host player load failed:", e);
+    }
+  }
 
   await syncRoomPlayback(roomId, {
     videoId: song.youtubeVideoId,
@@ -936,7 +955,11 @@ function renderPlayingView(room, isHost) {
   renderNowPlayingBanner(room);
   renderMasterPlaylist(room);
   setYouTubeInteractionLock(isHost);
-  applyRoomPlayback(room);
+  // Host controls their own player directly — applying their own Firestore
+  // broadcast would re-cue the video every 3s and interrupt playback.
+  if (!isHost) {
+    applyRoomPlayback(room);
+  }
 }
 
 function setYouTubeInteractionLock(isHost) {
