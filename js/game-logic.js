@@ -361,6 +361,13 @@ function handleRoomUpdate(room) {
   const isHost = !!me.isHost;
   renderMetaPanel(room);
 
+  if (room.status === "playing") {
+    renderHostPlayingControls(room, isHost);
+  } else {
+    const hc = document.getElementById("host-controls-inline");
+    if (hc) hc.innerHTML = "";
+  }
+
   const visibleViewId = getVisibleViewId();
   const statusChanged = room.status !== lastRoomStatus;
   const targetViewId = statusChanged
@@ -702,7 +709,6 @@ function getPlayedSongsForRound(room) {
 function renderPlayingView(room, isHost) {
   renderNowPlayingBanner(room);
   renderMasterPlaylist(room);
-  renderHostPlayingControls(room, isHost);
   setYouTubeInteractionLock(isHost);
   applyRoomPlayback(room);
 }
@@ -896,12 +902,12 @@ function renderHostPlayingControls(room, isHost) {
   const roundSongs = getSongsForRound(room.currentRound);
   if (roundSongs.length === 0) return;
 
-  const row = document.createElement("div");
-  row.className = "host-inline-controls-row";
-  hostControls.appendChild(row);
-
   if (!room.allSongsPlayed) {
     const currentSong = roundSongs[room.currentSongIndex];
+
+    const row = document.createElement("div");
+    row.className = "host-inline-controls-row";
+    hostControls.appendChild(row);
 
     const playBtn = document.createElement("button");
     playBtn.className = "secondary-btn compact-control-btn";
@@ -937,21 +943,42 @@ function renderHostPlayingControls(room, isHost) {
       nextBtn.textContent = "End Round";
       nextBtn.onclick = () => markAllSongsPlayed(roomId);
     }
-
     row.appendChild(nextBtn);
 
+    const autoplayRow = document.createElement("div");
+    autoplayRow.className = "host-inline-controls-row";
+    hostControls.appendChild(autoplayRow);
+
     const autoplayBtn = document.createElement("button");
-    autoplayBtn.className = "secondary-btn compact-control-btn compact-toggle" + (hostAutoplayEnabled ? " compact-toggle-enabled" : "");
+    autoplayBtn.className = "secondary-btn compact-control-btn compact-toggle-full" + (hostAutoplayEnabled ? " compact-toggle-enabled" : "");
     autoplayBtn.textContent = `Autoplay: ${hostAutoplayEnabled ? "On" : "Off"}`;
-    autoplayBtn.onclick = () => {
+    autoplayBtn.onclick = async () => {
       hostAutoplayEnabled = !hostAutoplayEnabled;
+      if (hostAutoplayEnabled && currentSong?.youtubeVideoId) {
+        try {
+          await syncRoomPlayback(roomId, {
+            videoId: currentSong.youtubeVideoId,
+            round: room.currentRound,
+            songIndex: room.currentSongIndex,
+            status: "playing",
+            startAtMs: Date.now() + 2500,
+            version: Date.now()
+          });
+        } catch (e) {
+          console.error("Autoplay start failed:", e);
+        }
+      }
       renderHostPlayingControls(room, isHost);
     };
-    row.appendChild(autoplayBtn);
+    autoplayRow.appendChild(autoplayBtn);
     return;
   }
 
   const progress = getRoundGuessProgress(roundSongs);
+  const row = document.createElement("div");
+  row.className = "host-inline-controls-row";
+  hostControls.appendChild(row);
+
   if (progress.allDone) {
     const revealBtn = document.createElement("button");
     revealBtn.className = "host-btn compact-control-btn";

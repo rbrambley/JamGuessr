@@ -66,14 +66,15 @@ body {
 }
 
 .app-graphic-chip {
-  width: 96px;
-  height: 58px;
+  width: 130px;
+  height: 78px;
   object-fit: cover;
   object-position: center;
-  border-radius: 10px;
-  border: 1px solid rgba(130, 149, 193, 0.22);
+  border-radius: 12px;
+  border: 1px solid rgba(249, 115, 22, 0.35);
   background: rgba(15, 23, 42, 0.55);
-  opacity: 0.9;
+  box-shadow: 0 0 14px rgba(249, 115, 22, 0.18);
+  opacity: 1;
 }
 
 .app-header-top {
@@ -83,28 +84,6 @@ body {
   gap: 10px;
 }
 
-.view-art {
-  display: flex;
-  justify-content: flex-end;
-  margin: -4px 0 10px;
-}
-
-.app-graphic-inline {
-  width: 112px;
-  max-width: 34%;
-  border-radius: 12px;
-  border: 1px solid rgba(130, 149, 193, 0.2);
-  background: rgba(15, 23, 42, 0.45);
-  object-fit: cover;
-  opacity: 0.82;
-  animation: graphicFloat 5.6s ease-in-out infinite;
-}
-
-@keyframes graphicFloat {
-  0% { transform: translateY(0); }
-  50% { transform: translateY(-4px); }
-  100% { transform: translateY(0); }
-}
 
 /* ── Typography ───────────────────────────────────────────────────────────── */
 h1 {
@@ -715,7 +694,13 @@ li { margin: 8px 0; line-height: 1.5; }
 
 .compact-toggle {
   border-color: #4b5678;
-  margin-left: auto;
+}
+
+.compact-toggle-full {
+  flex: 1 1 100%;
+  text-align: center;
+  margin-top: 2px;
+  border-color: #4b5678;
 }
 
 .compact-toggle-enabled {
@@ -809,8 +794,8 @@ li { margin: 8px 0; line-height: 1.5; }
   }
 
   .app-graphic-chip {
-    width: 82px;
-    height: 50px;
+    width: 106px;
+    height: 64px;
   }
 
   h1 {

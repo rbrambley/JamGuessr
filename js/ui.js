@@ -38,7 +38,7 @@ function renderLobby(players, code, isHost) {
   const inviteBtn = document.getElementById("copy-invite-btn");
   if (inviteBtn) {
     inviteBtn.onclick = async () => {
-      const inviteText = `Join my JamGuessr room. Code: ${code}. Open ${window.location.origin}`;
+      const inviteText = `Join my JamGuessr room! Code: ${code} — play at https://rbrambley.github.io/JamGuessr`;
       try {
         if (navigator.clipboard && navigator.clipboard.writeText) {
           await navigator.clipboard.writeText(inviteText);
