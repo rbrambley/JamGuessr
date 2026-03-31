@@ -25,6 +25,7 @@ const YOUTUBE_SEARCH_MAX_RESULTS = 5;
 const youtubeSearchCache = new Map();
 let lastYouTubeSearchAt = 0;
 let didRedirectAfterRemoval = false;
+let hasLoadedPlayersSnapshot = false;
 
 // -- Room listeners ------------------------------------------------------------
 
@@ -43,6 +44,7 @@ function startListening() {
   db.collection("rooms").doc(roomId).collection("players")
     .orderBy("joinedAt")
     .onSnapshot(snap => {
+      hasLoadedPlayersSnapshot = true;
       players = snap.docs.map(d => ({ id: d.id, ...d.data() }));
       if (currentRoom) handleRoomUpdate(currentRoom);
     });
@@ -201,6 +203,10 @@ async function applyRoomPlayback(room) {
 function handleRoomUpdate(room) {
   const me = players.find(p => p.id === currentPlayerId);
   if (!me) {
+    if (!hasLoadedPlayersSnapshot || players.length === 0) {
+      return;
+    }
+
     if (!didRedirectAfterRemoval) {
       didRedirectAfterRemoval = true;
       cleanupLocalGameState();
