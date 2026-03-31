@@ -343,7 +343,7 @@ function renderMetaPanel(room) {
   const isHost = !!me?.isHost;
   const playerNameEl = document.getElementById("player-name-display");
   if (playerNameEl) {
-    playerNameEl.textContent = me ? `You: ${me.name}` : "You: joining...";
+    playerNameEl.textContent = me ? `${me.name} • ${isHost ? "Host" : "Player"}` : "Joining room...";
   }
 
   const roundEl = document.getElementById("round-display");
@@ -355,13 +355,13 @@ function renderMetaPanel(room) {
       const roundSongs = getSongsForRound(room.currentRound);
       const songCount = Math.max(roundSongs.length, players.length);
       const songIdx = room.allSongsPlayed ? songCount : Math.min(room.currentSongIndex + 1, songCount);
-      roundEl.textContent = `Round ${room.currentRound} of ${room.maxRounds} - Song ${songIdx} of ${songCount}`;
+      roundEl.textContent = `Round ${room.currentRound} of ${room.maxRounds} • Song ${songIdx} of ${songCount}`;
       roundEl.style.color = "";
     } else if (room.status === "reveal") {
-      roundEl.textContent = `Round ${room.currentRound} of ${room.maxRounds} - Reveal`;
+      roundEl.textContent = `Round ${room.currentRound} of ${room.maxRounds} • Reveal`;
       roundEl.style.color = "";
     } else {
-      roundEl.textContent = `Round ${room.currentRound} of ${room.maxRounds}`;
+      roundEl.textContent = `Round ${room.currentRound} of ${room.maxRounds} • ${room.status === "lobby" ? "Lobby" : "Song Selection"}`;
       roundEl.style.color = "";
     }
   }
@@ -370,7 +370,12 @@ function renderMetaPanel(room) {
   if (pointsEl) {
     pointsEl.textContent = room.status === "finished"
       ? ""
-      : "Scoring: +1 correct guess, +1 when your song is revealed";
+      : "Scoring: +1 correct guess, +1 reveal bonus";
+  }
+
+  const metaLabelEl = document.querySelector("#game-meta .meta-label");
+  if (metaLabelEl) {
+    metaLabelEl.textContent = "Match status";
   }
 
   const buttonRow = document.getElementById("all-player-buttons");
@@ -403,9 +408,9 @@ function renderMetaPanel(room) {
   const endBtn = document.createElement("button");
   endBtn.type = "button";
   endBtn.className = "secondary-btn danger-btn";
-  endBtn.textContent = "End Game Now";
+  endBtn.textContent = "End Match";
   endBtn.onclick = async () => {
-    const ok = confirm("End the game now for all players and close this room?");
+    const ok = confirm("End this match for all players and close the room?");
     if (!ok) return;
 
     endBtn.disabled = true;
