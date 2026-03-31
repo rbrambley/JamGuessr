@@ -116,6 +116,10 @@ let hasLoadedPlayersSnapshot = false;
 let hasConfirmedPlayerPresence = false;
 let hostAutoplayEnabled = false;
 let autoplayAdvancePending = false;
+let presenceHeartbeatTimer = null;
+let hostElectionTimer = null;
+let lastSeenHostChangeAt = 0;
+let isInitialRoomRender = true;
 
 // -- Room listeners ------------------------------------------------------------
 
@@ -154,8 +158,64 @@ function startListening() {
 }
 
 function cleanupLocalGameState() {
+  if (presenceHeartbeatTimer) {
+    clearInterval(presenceHeartbeatTimer);
+    presenceHeartbeatTimer = null;
+  }
+  if (hostElectionTimer) {
+    clearInterval(hostElectionTimer);
+    hostElectionTimer = null;
+  }
   localStorage.removeItem("jamguessr_roomId");
   sessionStorage.removeItem("jamguessr_playerId");
+}
+
+function getCurrentHostPlayer() {
+  return players.find(p => !!p.isHost) || null;
+}
+
+async function touchPlayerPresence() {
+  if (!roomId || !currentPlayerId) return;
+  try {
+    await db.collection("rooms").doc(roomId)
+      .collection("players").doc(currentPlayerId)
+      .update({ lastSeen: Date.now() });
+  } catch (e) {
+    // Ignore best-effort heartbeat failures (player may have already left).
+  }
+}
+
+async function ensureRoomHasActiveHost() {
+  if (!roomId) return;
+  try {
+    await ensureActiveHost(roomId);
+  } catch (e) {
+    console.error("Host failover check failed", e);
+  }
+}
+
+function setupPresenceAndHostMonitoring() {
+  touchPlayerPresence();
+  ensureRoomHasActiveHost();
+
+  if (!presenceHeartbeatTimer) {
+    presenceHeartbeatTimer = setInterval(() => {
+      touchPlayerPresence();
+    }, 8000);
+  }
+
+  if (!hostElectionTimer) {
+    hostElectionTimer = setInterval(() => {
+      ensureRoomHasActiveHost();
+    }, 10000);
+  }
+
+  document.addEventListener("visibilitychange", () => {
+    if (document.visibilityState === "visible") {
+      touchPlayerPresence();
+      ensureRoomHasActiveHost();
+    }
+  });
 }
 
 function escapeHtml(value) {
@@ -252,20 +312,7 @@ async function handleHostAutoplayAdvance() {
   try {
     const nextIndex = currentRoom.currentSongIndex + 1;
     if (nextIndex < roundSongs.length) {
-      const nextSong = roundSongs[nextIndex];
-
-      await advanceSong(roomId, nextIndex);
-
-      if (nextSong?.youtubeVideoId) {
-        await syncRoomPlayback(roomId, {
-          videoId: nextSong.youtubeVideoId,
-          round: currentRoom.currentRound,
-          songIndex: nextIndex,
-          status: "playing",
-          startAtMs: Date.now() + 1200,
-          version: Date.now()
-        });
-      }
+      await advanceSongForEveryone(currentRoom, nextIndex);
     } else {
       await markAllSongsPlayed(roomId);
     }
@@ -337,6 +384,26 @@ async function applyRoomPlayback(room) {
   }, delayMs);
 }
 
+async function syncSongForEveryone(room, songIndex, startDelayMs = 1200) {
+  const roundSongs = getSongsForRound(room.currentRound);
+  const song = roundSongs[songIndex];
+  if (!song?.youtubeVideoId) return;
+
+  await syncRoomPlayback(roomId, {
+    videoId: song.youtubeVideoId,
+    round: room.currentRound,
+    songIndex,
+    status: "playing",
+    startAtMs: Date.now() + startDelayMs,
+    version: Date.now()
+  });
+}
+
+async function advanceSongForEveryone(room, nextIndex) {
+  await advanceSong(roomId, nextIndex);
+  await syncSongForEveryone(room, nextIndex, 1200);
+}
+
 // -- Routing by room status ----------------------------------------------------
 
 function handleRoomUpdate(room) {
@@ -356,6 +423,19 @@ function handleRoomUpdate(room) {
   }
 
   hasConfirmedPlayerPresence = true;
+
+  const hostChange = room.lastHostChange;
+  if (hostChange?.changedAt && hostChange.changedAt > lastSeenHostChangeAt) {
+    if (!isInitialRoomRender) {
+      if (hostChange.hostId === currentPlayerId) {
+        alert("The previous host left or disconnected. You are now the host.");
+      } else {
+        const nextHostName = hostChange.hostName || "A player";
+        alert(`The previous host left or disconnected. ${nextHostName} is now the host.`);
+      }
+    }
+    lastSeenHostChangeAt = hostChange.changedAt;
+  }
 
   currentRoom = room;
   const isHost = !!me.isHost;
@@ -378,6 +458,7 @@ function handleRoomUpdate(room) {
   updateMobileTabState(room.status, targetViewId);
   renderViewById(targetViewId, room, isHost);
   lastRoomStatus = room.status;
+  isInitialRoomRender = false;
 }
 
 function resetPickingView() {
@@ -938,14 +1019,7 @@ function renderHostPlayingControls(room, isHost) {
 
       playBtn.disabled = true;
       try {
-        await syncRoomPlayback(roomId, {
-          videoId: currentSong.youtubeVideoId,
-          round: room.currentRound,
-          songIndex: room.currentSongIndex,
-          status: "playing",
-          startAtMs: Date.now() + 2500,
-          version: Date.now()
-        });
+        await syncSongForEveryone(room, room.currentSongIndex, 2500);
       } catch (e) {
         alert("Could not sync playback: " + e.message);
       }
@@ -958,7 +1032,15 @@ function renderHostPlayingControls(room, isHost) {
 
     if (room.currentSongIndex < roundSongs.length - 1) {
       nextBtn.textContent = "Next Song";
-      nextBtn.onclick = () => advanceSong(roomId, room.currentSongIndex + 1);
+      nextBtn.onclick = async () => {
+        nextBtn.disabled = true;
+        try {
+          await advanceSongForEveryone(room, room.currentSongIndex + 1);
+        } catch (e) {
+          alert("Could not move to next song: " + (e?.message || "unknown error"));
+        }
+        nextBtn.disabled = false;
+      };
     } else {
       nextBtn.textContent = "End Round";
       nextBtn.onclick = () => markAllSongsPlayed(roomId);
@@ -976,14 +1058,7 @@ function renderHostPlayingControls(room, isHost) {
       hostAutoplayEnabled = !hostAutoplayEnabled;
       if (hostAutoplayEnabled && currentSong?.youtubeVideoId) {
         try {
-          await syncRoomPlayback(roomId, {
-            videoId: currentSong.youtubeVideoId,
-            round: room.currentRound,
-            songIndex: room.currentSongIndex,
-            status: "playing",
-            startAtMs: Date.now() + 2500,
-            version: Date.now()
-          });
+          await syncSongForEveryone(room, room.currentSongIndex, 2500);
         } catch (e) {
           console.error("Autoplay start failed:", e);
         }
@@ -1172,4 +1247,5 @@ async function renderFinalResults(players) {
 // -- Boot ----------------------------------------------------------------------
 
 setupMobileTabs();
+setupPresenceAndHostMonitoring();
 startListening();

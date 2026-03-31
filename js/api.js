@@ -18,6 +18,8 @@ async function createRoom(hostName, maxRounds) {
       name: hostName,
       score: 0,
       isHost: true,
+      submitted: false,
+      lastSeen: Date.now(),
       joinedAt: Date.now()
     });
   // Persist IDs locally
@@ -43,6 +45,8 @@ async function joinRoom(code, playerName) {
       name: playerName,
       score: 0,
       isHost: false,
+      submitted: false,
+      lastSeen: Date.now(),
       joinedAt: Date.now()
     });
 
@@ -209,8 +213,118 @@ async function resetGame(roomId) {
 
 async function leaveRoom(roomId, playerId) {
   const roomRef = db.collection("rooms").doc(roomId);
-  const playerRef = roomRef.collection("players").doc(playerId);
-  await playerRef.delete();
+  const playersQuery = roomRef.collection("players").orderBy("joinedAt", "asc");
+
+  await db.runTransaction(async tx => {
+    const playersSnap = await tx.get(playersQuery);
+    if (playersSnap.empty) return;
+
+    const players = playersSnap.docs;
+    const leavingDoc = players.find(doc => doc.id === playerId);
+    if (!leavingDoc) return;
+
+    const leavingIsHost = !!leavingDoc.data()?.isHost;
+    tx.delete(leavingDoc.ref);
+
+    if (!leavingIsHost) {
+      return;
+    }
+
+    const remaining = players.filter(doc => doc.id !== playerId);
+    if (remaining.length === 0) {
+      return;
+    }
+
+    const replacement = remaining[0];
+    remaining.forEach(doc => {
+      const data = doc.data() || {};
+      if (doc.id === replacement.id) {
+        if (!data.isHost) {
+          tx.update(doc.ref, { isHost: true });
+        }
+      } else if (data.isHost) {
+        tx.update(doc.ref, { isHost: false });
+      }
+    });
+
+    tx.update(roomRef, {
+      lastHostChange: {
+        previousHostId: playerId,
+        hostId: replacement.id,
+        hostName: replacement.data()?.name || "Player",
+        changedAt: Date.now(),
+        reason: "host_left"
+      }
+    });
+  });
+}
+
+async function ensureActiveHost(roomId, staleAfterMs = 25000) {
+  const roomRef = db.collection("rooms").doc(roomId);
+  const playersQuery = roomRef.collection("players").orderBy("joinedAt", "asc");
+
+  return db.runTransaction(async tx => {
+    const [roomDoc, playersSnap] = await Promise.all([
+      tx.get(roomRef),
+      tx.get(playersQuery)
+    ]);
+
+    if (!roomDoc.exists || playersSnap.empty) {
+      return { changed: false };
+    }
+
+    const now = Date.now();
+    const players = playersSnap.docs;
+    const currentHostDoc = players.find(doc => !!doc.data()?.isHost);
+    const currentHostData = currentHostDoc?.data() || null;
+    const currentHostLastSeen = currentHostData?.lastSeen || 0;
+    const hostMissingOrStale = !currentHostDoc || (now - currentHostLastSeen) > staleAfterMs;
+
+    if (!hostMissingOrStale) {
+      return { changed: false };
+    }
+
+    const activeCandidates = players.filter(doc => (now - (doc.data()?.lastSeen || 0)) <= staleAfterMs);
+    const replacementDoc = activeCandidates[0] || players[0];
+    if (!replacementDoc) {
+      return { changed: false };
+    }
+
+    const replacementData = replacementDoc.data();
+    const replacementId = replacementDoc.id;
+    const currentHostId = currentHostDoc?.id || null;
+
+    if (currentHostId === replacementId && replacementData?.isHost) {
+      return { changed: false };
+    }
+
+    players.forEach(doc => {
+      const data = doc.data() || {};
+      if (doc.id === replacementId) {
+        if (!data.isHost) {
+          tx.update(doc.ref, { isHost: true });
+        }
+      } else if (data.isHost) {
+        tx.update(doc.ref, { isHost: false });
+      }
+    });
+
+    tx.update(roomRef, {
+      lastHostChange: {
+        previousHostId: currentHostId,
+        hostId: replacementId,
+        hostName: replacementData?.name || "Player",
+        changedAt: now,
+        reason: currentHostDoc ? "host_disconnected" : "host_missing"
+      }
+    });
+
+    return {
+      changed: true,
+      hostId: replacementId,
+      hostName: replacementData?.name || "Player"
+    };
+  });
 }
 
 async function closeRoom(roomId) {
