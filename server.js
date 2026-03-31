@@ -8,6 +8,10 @@ const YOUTUBE_API_KEY = process.env.YOUTUBE_API_KEY || "";
 const ALLOWED_ORIGIN = process.env.ALLOWED_ORIGIN || "*";
 const SEARCH_MIN_QUERY_LENGTH = 4;
 const SEARCH_MAX_RESULTS = 5;
+const SEARCH_FETCH_CANDIDATES = 10;
+const MUSIC_CATEGORY_ID = "10";
+const MAX_VIDEO_DURATION_SECONDS = 12 * 60;
+const MIN_VIDEO_DURATION_SECONDS = 30;
 const CACHE_TTL_MS = 24 * 60 * 60 * 1000;
 const ROOT_DIR = __dirname;
 
@@ -86,6 +90,16 @@ function setCachedResults(query, items) {
   });
 }
 
+function parseIso8601DurationToSeconds(value) {
+  const match = /^PT(?:(\d+)H)?(?:(\d+)M)?(?:(\d+)S)?$/.exec(value || "");
+  if (!match) return 0;
+
+  const hours = Number(match[1] || 0);
+  const minutes = Number(match[2] || 0);
+  const seconds = Number(match[3] || 0);
+  return (hours * 3600) + (minutes * 60) + seconds;
+}
+
 async function handleYouTubeSearch(req, reqUrl, res) {
   const query = reqUrl.searchParams.get("q") || "";
   const normalizedQuery = normalizeQuery(query);
@@ -111,27 +125,72 @@ async function handleYouTubeSearch(req, reqUrl, res) {
     apiUrl.searchParams.set("part", "snippet");
     apiUrl.searchParams.set("type", "video");
     apiUrl.searchParams.set("videoEmbeddable", "true");
-    apiUrl.searchParams.set("maxResults", String(SEARCH_MAX_RESULTS));
+    apiUrl.searchParams.set("videoCategoryId", MUSIC_CATEGORY_ID);
+    apiUrl.searchParams.set("maxResults", String(SEARCH_FETCH_CANDIDATES));
     apiUrl.searchParams.set("q", query);
     apiUrl.searchParams.set("key", YOUTUBE_API_KEY);
 
-    const response = await fetch(apiUrl);
-    const data = await response.json();
+    const searchResponse = await fetch(apiUrl);
+    const searchData = await searchResponse.json();
 
-    if (!response.ok) {
-      sendJson(req, res, response.status, {
-        error: { message: data?.error?.message || "YouTube search failed." }
+    if (!searchResponse.ok) {
+      sendJson(req, res, searchResponse.status, {
+        error: { message: searchData?.error?.message || "YouTube search failed." }
       });
       return;
     }
 
-    const items = (data.items || []).map(item => ({
-      youtubeVideoId: item.id?.videoId || "",
-      youtubeUrl: item.id?.videoId ? `https://www.youtube.com/watch?v=${item.id.videoId}` : "",
+    const baseItems = (searchData.items || []).map(item => ({
+      id: item.id?.videoId || "",
       title: item.snippet?.title || "",
       artist: item.snippet?.channelTitle || "",
       thumbnailUrl: item.snippet?.thumbnails?.medium?.url || item.snippet?.thumbnails?.default?.url || ""
-    })).filter(item => item.youtubeVideoId);
+    })).filter(item => item.id);
+
+    if (baseItems.length === 0) {
+      setCachedResults(normalizedQuery, []);
+      sendJson(req, res, 200, { items: [], cached: false });
+      return;
+    }
+
+    const detailsUrl = new URL("https://www.googleapis.com/youtube/v3/videos");
+    detailsUrl.searchParams.set("part", "contentDetails,snippet");
+    detailsUrl.searchParams.set("id", baseItems.map(item => item.id).join(","));
+    detailsUrl.searchParams.set("key", YOUTUBE_API_KEY);
+
+    const detailsResponse = await fetch(detailsUrl);
+    const detailsData = await detailsResponse.json();
+
+    if (!detailsResponse.ok) {
+      sendJson(req, res, detailsResponse.status, {
+        error: { message: detailsData?.error?.message || "Could not validate YouTube results." }
+      });
+      return;
+    }
+
+    const detailsById = new Map((detailsData.items || []).map(item => [item.id, item]));
+
+    const items = baseItems
+      .filter(item => {
+        const details = detailsById.get(item.id);
+        if (!details) return false;
+
+        const categoryId = details.snippet?.categoryId || "";
+        const durationSeconds = parseIso8601DurationToSeconds(details.contentDetails?.duration || "");
+
+        if (categoryId !== MUSIC_CATEGORY_ID) return false;
+        if (durationSeconds < MIN_VIDEO_DURATION_SECONDS) return false;
+        if (durationSeconds > MAX_VIDEO_DURATION_SECONDS) return false;
+        return true;
+      })
+      .slice(0, SEARCH_MAX_RESULTS)
+      .map(item => ({
+        youtubeVideoId: item.id,
+        youtubeUrl: `https://www.youtube.com/watch?v=${item.id}`,
+        title: item.title,
+        artist: item.artist,
+        thumbnailUrl: item.thumbnailUrl
+      }));
 
     setCachedResults(normalizedQuery, items);
     sendJson(req, res, 200, { items, cached: false });

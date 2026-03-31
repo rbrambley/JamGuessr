@@ -43,7 +43,31 @@ function renderLobby(players, code, isHost) {
   list.innerHTML = "";
   players.forEach(p => {
     const li = document.createElement("li");
-    li.textContent = p.name + (p.isHost ? " (host)" : "");
+    li.className = "lobby-player-row";
+
+    const name = document.createElement("span");
+    name.textContent = p.name + (p.isHost ? " (host)" : "");
+    li.appendChild(name);
+
+    if (isHost && p.id !== currentPlayerId && !p.isHost) {
+      const kickLink = document.createElement("button");
+      kickLink.type = "button";
+      kickLink.className = "kick-player-link";
+      kickLink.textContent = "Kick";
+      kickLink.onclick = async () => {
+        const ok = confirm(`Kick ${p.name} from the room?`);
+        if (!ok) return;
+        kickLink.disabled = true;
+        try {
+          await leaveRoom(roomId, p.id);
+        } catch (e) {
+          alert("Could not kick player: " + (e?.message || "unknown error"));
+          kickLink.disabled = false;
+        }
+      };
+      li.appendChild(kickLink);
+    }
+
     list.appendChild(li);
   });
 

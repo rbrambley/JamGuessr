@@ -24,6 +24,7 @@ const YOUTUBE_SEARCH_COOLDOWN_MS = 1000;
 const YOUTUBE_SEARCH_MAX_RESULTS = 5;
 const youtubeSearchCache = new Map();
 let lastYouTubeSearchAt = 0;
+let didRedirectAfterRemoval = false;
 
 // -- Room listeners ------------------------------------------------------------
 
@@ -198,8 +199,19 @@ async function applyRoomPlayback(room) {
 // -- Routing by room status ----------------------------------------------------
 
 function handleRoomUpdate(room) {
+  const me = players.find(p => p.id === currentPlayerId);
+  if (!me) {
+    if (!didRedirectAfterRemoval) {
+      didRedirectAfterRemoval = true;
+      cleanupLocalGameState();
+      alert("You were removed from this room.");
+      window.location.href = "index.html";
+    }
+    return;
+  }
+
   currentRoom = room;
-  const isHost = players.find(p => p.id === currentPlayerId)?.isHost;
+  const isHost = !!me.isHost;
   renderMetaPanel(room);
 
   switch (room.status) {
@@ -249,6 +261,7 @@ function resetPickingView() {
 
 function renderMetaPanel(room) {
   const me = players.find(p => p.id === currentPlayerId);
+  const isHost = !!me?.isHost;
   const playerNameEl = document.getElementById("player-name-display");
   if (playerNameEl) {
     playerNameEl.textContent = me ? `You: ${me.name}` : "You: joining...";
@@ -282,7 +295,8 @@ function renderMetaPanel(room) {
   }
 
   const buttonRow = document.getElementById("all-player-buttons");
-  if (!buttonRow) return;
+  const hostActions = document.getElementById("meta-host-actions");
+  if (!buttonRow || !hostActions) return;
 
   buttonRow.innerHTML = "";
   const isFinished = room.status === "finished";
@@ -303,6 +317,30 @@ function renderMetaPanel(room) {
 
     buttonRow.appendChild(btn);
   });
+
+  hostActions.innerHTML = "";
+  if (!isHost || room.status === "finished") return;
+
+  const endBtn = document.createElement("button");
+  endBtn.type = "button";
+  endBtn.className = "secondary-btn danger-btn";
+  endBtn.textContent = "End Game Now";
+  endBtn.onclick = async () => {
+    const ok = confirm("End the game now for all players and close this room?");
+    if (!ok) return;
+
+    endBtn.disabled = true;
+    try {
+      await closeRoom(roomId);
+      cleanupLocalGameState();
+      window.location.href = "index.html";
+    } catch (e) {
+      alert("Could not end game: " + (e?.message || "unknown error"));
+      endBtn.disabled = false;
+    }
+  };
+
+  hostActions.appendChild(endBtn);
 }
 
 // -- Picking phase -------------------------------------------------------------
@@ -737,7 +775,7 @@ function renderHostPlayingControls(room, isHost) {
     button.className = "host-btn";
 
     if (room.currentSongIndex < roundSongs.length - 1) {
-      button.textContent = "Next Song";
+      button.textContent = "Skip To Next Video";
       button.onclick = () => advanceSong(roomId, room.currentSongIndex + 1);
     } else {
       button.textContent = "End Round Songs";
