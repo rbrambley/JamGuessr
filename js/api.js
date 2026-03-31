@@ -263,47 +263,43 @@ async function ensureActiveHost(roomId, staleAfterMs = 25000) {
   const roomRef = db.collection("rooms").doc(roomId);
   const playersQuery = roomRef.collection("players").orderBy("joinedAt", "asc");
 
+  // Fetch players outside the transaction — tx.get() only supports DocumentRefs.
+  const playersSnap = await playersQuery.get();
+  if (playersSnap.empty) return { changed: false };
+
+  const now = Date.now();
+  const players = playersSnap.docs;
+  const currentHostDoc = players.find(doc => !!doc.data()?.isHost);
+  const currentHostLastSeen = currentHostDoc?.data()?.lastSeen || 0;
+  const hostMissingOrStale = !currentHostDoc || (now - currentHostLastSeen) > staleAfterMs;
+
+  if (!hostMissingOrStale) return { changed: false };
+
+  const activeCandidates = players.filter(doc => (now - (doc.data()?.lastSeen || 0)) <= staleAfterMs);
+  const replacementDoc = activeCandidates[0] || players[0];
+  if (!replacementDoc) return { changed: false };
+
+  const replacementId = replacementDoc.id;
+  const currentHostId = currentHostDoc?.id || null;
+
+  // Already the correct host — nothing to do.
+  if (currentHostId === replacementId && replacementDoc.data()?.isHost) {
+    return { changed: false };
+  }
+
   return db.runTransaction(async tx => {
-    const [roomDoc, playersSnap] = await Promise.all([
-      tx.get(roomRef),
-      tx.get(playersQuery)
-    ]);
+    const roomDoc = await tx.get(roomRef);
+    if (!roomDoc.exists) return { changed: false };
 
-    if (!roomDoc.exists || playersSnap.empty) {
-      return { changed: false };
-    }
+    // Re-fetch each player doc individually inside the transaction.
+    const playerDocs = await Promise.all(players.map(p => tx.get(p.ref)));
 
-    const now = Date.now();
-    const players = playersSnap.docs;
-    const currentHostDoc = players.find(doc => !!doc.data()?.isHost);
-    const currentHostData = currentHostDoc?.data() || null;
-    const currentHostLastSeen = currentHostData?.lastSeen || 0;
-    const hostMissingOrStale = !currentHostDoc || (now - currentHostLastSeen) > staleAfterMs;
+    const replacementData = playerDocs.find(d => d.id === replacementId)?.data() || {};
 
-    if (!hostMissingOrStale) {
-      return { changed: false };
-    }
-
-    const activeCandidates = players.filter(doc => (now - (doc.data()?.lastSeen || 0)) <= staleAfterMs);
-    const replacementDoc = activeCandidates[0] || players[0];
-    if (!replacementDoc) {
-      return { changed: false };
-    }
-
-    const replacementData = replacementDoc.data();
-    const replacementId = replacementDoc.id;
-    const currentHostId = currentHostDoc?.id || null;
-
-    if (currentHostId === replacementId && replacementData?.isHost) {
-      return { changed: false };
-    }
-
-    players.forEach(doc => {
+    playerDocs.forEach(doc => {
       const data = doc.data() || {};
       if (doc.id === replacementId) {
-        if (!data.isHost) {
-          tx.update(doc.ref, { isHost: true });
-        }
+        if (!data.isHost) tx.update(doc.ref, { isHost: true });
       } else if (data.isHost) {
         tx.update(doc.ref, { isHost: false });
       }

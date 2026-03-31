@@ -554,7 +554,19 @@ function handleRoomUpdate(room) {
 
   setView(targetViewId);
   updateMobileTabState(room.status, targetViewId);
-  renderViewById(targetViewId, room, isHost);
+
+  // Don't re-render the pick screen while the user is actively searching —
+  // it would wipe the input. Only skip when the view isn't changing.
+  const pickScreenActive = targetViewId === "view-picking" && !statusChanged;
+  const userTypingInSearch = pickScreenActive &&
+    document.activeElement?.id === "song-search-query";
+  const searchHasText = pickScreenActive &&
+    (document.getElementById("song-search-query")?.value || "").length > 0;
+
+  if (!pickScreenActive || (!userTypingInSearch && !searchHasText)) {
+    renderViewById(targetViewId, room, isHost);
+  }
+
   lastRoomStatus = room.status;
   isInitialRoomRender = false;
 }
