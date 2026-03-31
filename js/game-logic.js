@@ -114,6 +114,8 @@ let lastYouTubeSearchAt = 0;
 let didRedirectAfterRemoval = false;
 let hasLoadedPlayersSnapshot = false;
 let hasConfirmedPlayerPresence = false;
+let hostAutoplayEnabled = false;
+let autoplayAdvancePending = false;
 
 // -- Room listeners ------------------------------------------------------------
 
@@ -219,12 +221,61 @@ async function ensureYouTubePlayer() {
         onReady: () => {
           ytPlayerReady = true;
           resolve();
+        },
+        onStateChange: evt => {
+          if (evt?.data === YT.PlayerState.ENDED) {
+            handleHostAutoplayAdvance();
+          }
         }
       }
     });
   });
 
   return ytPlayer;
+}
+
+function isCurrentPlayerHost() {
+  const me = players.find(p => p.id === currentPlayerId);
+  return !!me?.isHost;
+}
+
+async function handleHostAutoplayAdvance() {
+  if (!hostAutoplayEnabled || autoplayAdvancePending) return;
+  if (!currentRoom || currentRoom.status !== "playing" || currentRoom.allSongsPlayed) return;
+  if (!isCurrentPlayerHost()) return;
+
+  const roundSongs = getSongsForRound(currentRoom.currentRound);
+  if (roundSongs.length === 0) return;
+
+  autoplayAdvancePending = true;
+
+  try {
+    const nextIndex = currentRoom.currentSongIndex + 1;
+    if (nextIndex < roundSongs.length) {
+      const nextSong = roundSongs[nextIndex];
+
+      await advanceSong(roomId, nextIndex);
+
+      if (nextSong?.youtubeVideoId) {
+        await syncRoomPlayback(roomId, {
+          videoId: nextSong.youtubeVideoId,
+          round: currentRoom.currentRound,
+          songIndex: nextIndex,
+          status: "playing",
+          startAtMs: Date.now() + 1200,
+          version: Date.now()
+        });
+      }
+    } else {
+      await markAllSongsPlayed(roomId);
+    }
+  } catch (e) {
+    console.error("Autoplay advance failed", e);
+  } finally {
+    setTimeout(() => {
+      autoplayAdvancePending = false;
+    }, 500);
+  }
 }
 
 async function applyRoomPlayback(room) {
@@ -810,13 +861,6 @@ function renderMasterPlaylist(room) {
       group.appendChild(card);
     });
 
-    if (roundNumber === room.currentRound) {
-      const controlsAnchor = document.createElement("div");
-      controlsAnchor.id = "current-round-controls-anchor";
-      controlsAnchor.className = "round-embedded-controls";
-      group.appendChild(controlsAnchor);
-    }
-
     container.appendChild(group);
   });
 }
@@ -843,9 +887,7 @@ function getRoundGuessProgress(roundSongs) {
 }
 
 function renderHostPlayingControls(room, isHost) {
-  const fallbackControls = document.getElementById("host-controls");
-  const anchorControls = document.getElementById("current-round-controls-anchor");
-  const hostControls = anchorControls || fallbackControls;
+  const hostControls = document.getElementById("host-controls-inline");
   if (!hostControls) return;
 
   hostControls.innerHTML = "";
@@ -854,12 +896,16 @@ function renderHostPlayingControls(room, isHost) {
   const roundSongs = getSongsForRound(room.currentRound);
   if (roundSongs.length === 0) return;
 
+  const row = document.createElement("div");
+  row.className = "host-inline-controls-row";
+  hostControls.appendChild(row);
+
   if (!room.allSongsPlayed) {
     const currentSong = roundSongs[room.currentSongIndex];
 
     const playBtn = document.createElement("button");
-    playBtn.className = "secondary-btn";
-    playBtn.textContent = "Play Song For Everyone";
+    playBtn.className = "secondary-btn compact-control-btn";
+    playBtn.textContent = "Play For Everyone";
     playBtn.disabled = !currentSong?.youtubeVideoId;
     playBtn.onclick = async () => {
       if (!currentSong?.youtubeVideoId) return;
@@ -879,30 +925,39 @@ function renderHostPlayingControls(room, isHost) {
       }
       playBtn.disabled = false;
     };
-    hostControls.appendChild(playBtn);
+    row.appendChild(playBtn);
 
-    const button = document.createElement("button");
-    button.className = "host-btn";
+    const nextBtn = document.createElement("button");
+    nextBtn.className = "host-btn compact-control-btn";
 
     if (room.currentSongIndex < roundSongs.length - 1) {
-      button.textContent = "Skip To Next Video";
-      button.onclick = () => advanceSong(roomId, room.currentSongIndex + 1);
+      nextBtn.textContent = "Next Song";
+      nextBtn.onclick = () => advanceSong(roomId, room.currentSongIndex + 1);
     } else {
-      button.textContent = "End Round Songs";
-      button.onclick = () => markAllSongsPlayed(roomId);
+      nextBtn.textContent = "End Round";
+      nextBtn.onclick = () => markAllSongsPlayed(roomId);
     }
 
-    hostControls.appendChild(button);
+    row.appendChild(nextBtn);
+
+    const autoplayBtn = document.createElement("button");
+    autoplayBtn.className = "secondary-btn compact-control-btn compact-toggle" + (hostAutoplayEnabled ? " compact-toggle-enabled" : "");
+    autoplayBtn.textContent = `Autoplay: ${hostAutoplayEnabled ? "On" : "Off"}`;
+    autoplayBtn.onclick = () => {
+      hostAutoplayEnabled = !hostAutoplayEnabled;
+      renderHostPlayingControls(room, isHost);
+    };
+    row.appendChild(autoplayBtn);
     return;
   }
 
   const progress = getRoundGuessProgress(roundSongs);
   if (progress.allDone) {
     const revealBtn = document.createElement("button");
-    revealBtn.className = "host-btn";
+    revealBtn.className = "host-btn compact-control-btn";
     revealBtn.textContent = "Reveal Round";
     revealBtn.onclick = () => revealRound(roomId);
-    hostControls.appendChild(revealBtn);
+    row.appendChild(revealBtn);
   } else {
     const waiting = document.createElement("div");
     waiting.className = "guess-progress";

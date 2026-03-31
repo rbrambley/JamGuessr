@@ -683,14 +683,51 @@ li { margin: 8px 0; line-height: 1.5; }
   font-weight: 600;
 }
 
-.guess-progress {
-  margin-top: 10px;
-  color: #94a3b8;
-  font-size: 0.9rem;
+.host-inline-controls {
+  margin: -2px 0 10px;
 }
 
-.round-embedded-controls {
-  margin-top: 4px;
+.host-inline-controls-row {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  gap: 6px;
+  overflow-x: auto;
+  padding-bottom: 2px;
+}
+
+.host-inline-controls-row::-webkit-scrollbar {
+  display: none;
+}
+
+.compact-control-btn {
+  flex: 0 0 auto;
+  min-height: 30px;
+  margin-top: 0;
+  padding: 5px 13px;
+  border-radius: 999px;
+  font-size: 0.74rem;
+  font-weight: 700;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+.compact-toggle {
+  border-color: #4b5678;
+  margin-left: auto;
+}
+
+.compact-toggle-enabled {
+  background: rgba(249, 115, 22, 0.2);
+  border-color: rgba(249, 115, 22, 0.5);
+  color: #ffcb9d;
+}
+
+.guess-progress {
+  margin-top: 8px;
+  color: #94a3b8;
+  font-size: 0.84rem;
 }
 
 .final-actions {
