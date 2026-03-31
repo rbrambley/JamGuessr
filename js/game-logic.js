@@ -517,23 +517,43 @@ function renderSongInputs(currentRound, maxRounds) {
   const queryEl = document.getElementById("song-search-query");
   const searchBtn = document.getElementById("song-search-btn");
 
+  function renderSelectedSong() {
+    if (!selectedEl || !searchBlockEl) return;
+
+    selectedEl.innerHTML = "";
+    if (!pickingSelectedSong) {
+      searchBlockEl.style.display = "block";
+      return;
+    }
+
+    const text = document.createElement("div");
+    text.className = "song-search-selected-text";
+    text.textContent = `Selected: ${pickingSelectedSong.title} - ${pickingSelectedSong.artist}. Click Submit Songs to lock it in.`;
+
+    const changeBtn = document.createElement("button");
+    changeBtn.type = "button";
+    changeBtn.className = "secondary-btn song-change-selection-btn";
+    changeBtn.textContent = "Change Selection";
+    changeBtn.onclick = () => {
+      searchBlockEl.style.display = "block";
+      selectedEl.innerHTML = "";
+      const submitButton = document.getElementById("submit-songs-btn");
+      if (submitButton) submitButton.disabled = false;
+      queryEl?.focus();
+    };
+
+    selectedEl.appendChild(text);
+    selectedEl.appendChild(changeBtn);
+    searchBlockEl.style.display = "none";
+  }
+
   if (pickingSelectedSong) {
-    if (selectedEl) {
-      selectedEl.textContent = `Selected: ${pickingSelectedSong.title} - ${pickingSelectedSong.artist}. Click Submit Songs to lock it in.`;
-    }
-    if (searchBlockEl) {
-      searchBlockEl.style.display = "none";
-    }
+    renderSelectedSong();
   }
 
   function selectSearchResult(item, btnEl) {
     pickingSelectedSong = item;
-    if (selectedEl) {
-      selectedEl.textContent = `Selected: ${item.title} - ${item.artist}. Click Submit Songs to lock it in.`;
-    }
-    if (searchBlockEl) {
-      searchBlockEl.style.display = "none";
-    }
+    renderSelectedSong();
     document.querySelectorAll(".song-search-item").forEach(el => el.classList.remove("song-search-item-selected"));
     if (btnEl) btnEl.classList.add("song-search-item-selected");
     const submitButton = document.getElementById("submit-songs-btn");
