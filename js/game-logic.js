@@ -26,6 +26,7 @@ const youtubeSearchCache = new Map();
 let lastYouTubeSearchAt = 0;
 let didRedirectAfterRemoval = false;
 let hasLoadedPlayersSnapshot = false;
+let hasConfirmedPlayerPresence = false;
 
 // -- Room listeners ------------------------------------------------------------
 
@@ -203,7 +204,7 @@ async function applyRoomPlayback(room) {
 function handleRoomUpdate(room) {
   const me = players.find(p => p.id === currentPlayerId);
   if (!me) {
-    if (!hasLoadedPlayersSnapshot || players.length === 0) {
+    if (!hasLoadedPlayersSnapshot || !hasConfirmedPlayerPresence) {
       return;
     }
 
@@ -215,6 +216,8 @@ function handleRoomUpdate(room) {
     }
     return;
   }
+
+  hasConfirmedPlayerPresence = true;
 
   currentRoom = room;
   const isHost = !!me.isHost;
