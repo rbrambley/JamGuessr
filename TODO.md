@@ -2,6 +2,7 @@
 
 ## Bugs
 - [ ] **Fix player video playback stopping** — non-host players' video stops while host keeps playing. `applyRoomPlayback` likely gets a new `version` every 3s (from host sync heartbeat), re-cuing mid-play. Need to diff video state before seeking/cuing.
+  - _Partial fix landed_: same-video resumes now skip `cueVideoById` and go straight to `seekTo + playVideo`, which is more reliable. Heartbeat-driven `cueVideoById` interruptions are also eliminated for the same song. Per-song drifting (re-seeking every 3 s) is still a minor annoyance but no longer causes re-loads.
 
 ## Features
 - [ ] **Dedicated playback device mode** — special "screen" join role: plays audio/video only, no guessing UI. Intended for TV/Chromecast in-person scenarios where players watch together but guess on their own phones.

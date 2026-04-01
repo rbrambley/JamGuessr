@@ -105,6 +105,8 @@ let ytPlayer = null;
 let ytPlayerReady = false;
 let playbackTimer = null;
 let lastAppliedPlaybackVersion = null;
+let lastLoadedVideoIdForPlayback = null;
+let pausedHeartbeatDebounceTimer = null;
 
 const YOUTUBE_SEARCH_MIN_QUERY_LENGTH = 4;
 const YOUTUBE_SEARCH_COOLDOWN_MS = 1000;
@@ -173,6 +175,11 @@ function cleanupLocalGameState() {
     clearInterval(hostPlaybackSyncTimer);
     hostPlaybackSyncTimer = null;
   }
+  if (pausedHeartbeatDebounceTimer) {
+    clearTimeout(pausedHeartbeatDebounceTimer);
+    pausedHeartbeatDebounceTimer = null;
+  }
+  lastLoadedVideoIdForPlayback = null;
   localStorage.removeItem("jamguessr_roomId");
   sessionStorage.removeItem("jamguessr_playerId");
 }
@@ -333,6 +340,29 @@ async function broadcastHostPlaybackState(force = false) {
   }
 
   const status = mapYouTubeStateToPlaybackStatus(playerState);
+
+  // Don't immediately propagate a "paused" state from the periodic heartbeat —
+  // YouTube pre/mid-roll ads make the host player appear paused even though
+  // content is actively playing for everyone else.  Debounce it so a brief
+  // interruption (e.g. a short ad transition) doesn't freeze all clients.
+  // A force=true call (from onStateChange, i.e. the host clicking pause)
+  // bypasses this and broadcasts immediately.
+  if (status === "paused" && !force) {
+    if (!pausedHeartbeatDebounceTimer) {
+      pausedHeartbeatDebounceTimer = setTimeout(() => {
+        pausedHeartbeatDebounceTimer = null;
+        broadcastHostPlaybackState(true);
+      }, 2500);
+    }
+    return;
+  }
+
+  // A "playing" broadcast cancels any pending debounced "paused" broadcast.
+  if (pausedHeartbeatDebounceTimer) {
+    clearTimeout(pausedHeartbeatDebounceTimer);
+    pausedHeartbeatDebounceTimer = null;
+  }
+
   const startAtMs = status === "playing"
     ? Date.now() - Math.floor(currentSec * 1000)
     : Date.now();
@@ -361,6 +391,10 @@ function updateHostPlaybackSyncLoop(room, isHost) {
     if (hostPlaybackSyncTimer) {
       clearInterval(hostPlaybackSyncTimer);
       hostPlaybackSyncTimer = null;
+    }
+    if (pausedHeartbeatDebounceTimer) {
+      clearTimeout(pausedHeartbeatDebounceTimer);
+      pausedHeartbeatDebounceTimer = null;
     }
     return;
   }
@@ -461,14 +495,23 @@ async function applyRoomPlayback(room) {
     }
   }
 
-  player.cueVideoById({
-    videoId: playback.videoId,
-    startSeconds: elapsedSec
-  });
+  // Only re-cue the player when the video actually changes.  Re-cueing the
+  // same video forces a full reload cycle and calling playVideo() immediately
+  // after is unreliable (the cue is async).  For same-video resumes/seeks —
+  // which includes ad-end recovery — skip straight to seekTo + play/pause.
+  const sameVideo = lastLoadedVideoIdForPlayback === playback.videoId;
+
+  if (!sameVideo) {
+    player.cueVideoById({
+      videoId: playback.videoId,
+      startSeconds: elapsedSec
+    });
+    lastLoadedVideoIdForPlayback = playback.videoId;
+  }
 
   playbackTimer = setTimeout(() => {
     try {
-      if (elapsedSec > 0.5) {
+      if (!sameVideo || elapsedSec > 0.5) {
         player.seekTo(elapsedSec, true);
       }
       if (status === "paused") {
