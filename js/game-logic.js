@@ -778,8 +778,17 @@ function renderMetaPanel(room) {
     btn.className = "secondary-btn player-chip";
 
     const trophy = isFinished && winner && p.id === winner.id ? " 🏆" : "";
-    const score = ` - ${p.score || 0} pts`;
-    btn.textContent = p.name + (p.id === currentPlayerId ? " (You)" : "") + score + trophy;
+
+    const name = document.createElement("span");
+    name.className = "player-pill-name";
+    name.textContent = p.name + (p.id === currentPlayerId ? " (You)" : "") + trophy;
+
+    const score = document.createElement("span");
+    score.className = "player-pill-score";
+    score.textContent = `${p.score || 0} pts`;
+
+    btn.appendChild(name);
+    btn.appendChild(score);
 
     btn.disabled = true;
     if (p.id === currentPlayerId) btn.classList.add("player-chip-active");
@@ -1230,7 +1239,18 @@ function renderMasterPlaylist(room) {
           const btn = document.createElement("button");
           btn.type = "button";
           btn.className = "guess-btn" + (myGuess?.guessedPlayerId === p.id ? " guess-btn-selected" : "");
-          btn.textContent = p.name;
+
+          const name = document.createElement("span");
+          name.className = "player-pill-name";
+          name.textContent = p.name;
+
+          const score = document.createElement("span");
+          score.className = "player-pill-score";
+          score.textContent = `${p.score || 0} pts`;
+
+          btn.appendChild(name);
+          btn.appendChild(score);
+
           btn.onclick = async () => {
             row.querySelectorAll(".guess-btn").forEach(b => b.classList.remove("guess-btn-selected"));
             btn.classList.add("guess-btn-selected");
