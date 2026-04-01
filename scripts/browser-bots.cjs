@@ -234,6 +234,7 @@ class BotPlayer {
     }
 
     if (viewId === "view-playing") {
+      await this.handlePlaybackUi();
       await this.handleGuessing();
       return;
     }
@@ -246,6 +247,38 @@ class BotPlayer {
     if (viewId === "view-final") {
       this.log("reached final results");
       return;
+    }
+  }
+
+  async handlePlaybackUi() {
+    const unlockBtn = this.page.locator("#audio-unlock-btn");
+    const unlockVisible = await unlockBtn.isVisible().catch(() => false);
+    if (unlockVisible) {
+      await unlockBtn.click().catch(() => {});
+    }
+
+    const frames = this.page.frames();
+    for (const frame of frames) {
+      try {
+        const skipCandidates = [
+          'button[aria-label*="Skip" i]',
+          'button.ytp-ad-skip-button',
+          'button.ytp-ad-skip-button-modern',
+          '.ytp-ad-skip-button',
+          '.ytp-ad-skip-button-modern'
+        ];
+
+        for (const selector of skipCandidates) {
+          const btn = frame.locator(selector).first();
+          if (await btn.isVisible().catch(() => false)) {
+            await btn.click({ timeout: 1000 }).catch(() => {});
+            this.log("clicked Skip Ad");
+            return;
+          }
+        }
+      } catch {
+        // Best-effort only; some frames are cross-origin or transient.
+      }
     }
   }
 

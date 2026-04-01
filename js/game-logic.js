@@ -132,6 +132,7 @@ let revealRenderInFlight = false;
 let revealScoresAppliedRound = -1;
 let scoreFinalizeInFlight = false;
 let lastRenderedRevealRound = -1;
+let lastRenderedFinalSignature = "";
 let presenceHeartbeatTimer = null;
 let hostElectionTimer = null;
 let lastSeenHostChangeAt = 0;
@@ -786,6 +787,10 @@ function handleRoomUpdate(room) {
   if (room.status !== "reveal") {
     revealScoresAppliedRound = -1;
     lastRenderedRevealRound = -1;
+  }
+
+  if (room.status !== "finished") {
+    lastRenderedFinalSignature = "";
   }
 
   if (room.status === "scoring") {
@@ -1901,6 +1906,24 @@ async function awardScoresForSong(song) {
 // -- Final results -------------------------------------------------------------
 
 async function renderFinalResults(players) {
+  const finalSignature = JSON.stringify({
+    status: currentRoom?.status,
+    round: currentRoom?.currentRound,
+    maxRounds: currentRoom?.maxRounds,
+    players: [...players]
+      .map(p => ({ id: p.id, name: p.name, score: p.score || 0 }))
+      .sort((a, b) => a.id.localeCompare(b.id)),
+    songs: [...(songs || [])]
+      .map(s => ({ id: s.id, pickedBy: s.pickedBy, round: s.round, title: s.title, artist: s.artist }))
+      .sort((a, b) => a.id.localeCompare(b.id))
+  });
+
+  if (lastRenderedFinalSignature === finalSignature && getVisibleViewId() === "view-final") {
+    return;
+  }
+
+  lastRenderedFinalSignature = finalSignature;
+
   const isHost = players.find(p => p.id === currentPlayerId)?.isHost;
 
   // Ranked podium
