@@ -10,6 +10,7 @@ const STATUS_VIEW_ORDER = {
   lobby: ["view-lobby"],
   picking: ["view-lobby", "view-picking"],
   playing: ["view-picking", "view-playing"],
+  scoring: ["view-playing", "view-reveal"],
   reveal: ["view-playing", "view-reveal"],
   finished: ["view-playing", "view-reveal", "view-final"]
 };
@@ -18,6 +19,7 @@ const CANONICAL_STATUS_VIEW = {
   lobby: "view-lobby",
   picking: "view-picking",
   playing: "view-playing",
+  scoring: "view-reveal",
   reveal: "view-reveal",
   finished: "view-final"
 };
@@ -61,7 +63,11 @@ function renderViewById(viewId, room, isHost) {
       renderPlayingView(room, isHost);
       break;
     case "view-reveal":
-      renderRevealView(room, isHost);
+      if (room.status === "scoring") {
+        renderScoreProcessingView(room, isHost);
+      } else {
+        renderRevealView(room, isHost);
+      }
       break;
     case "view-final":
       renderFinalResults(players);
@@ -123,6 +129,8 @@ let autoplayAdvancePending = false;
 
 let revealRenderInFlight = false;
 let revealScoresAppliedRound = -1;
+let scoreFinalizeInFlight = false;
+let lastRenderedRevealRound = -1;
 let presenceHeartbeatTimer = null;
 let hostElectionTimer = null;
 let lastSeenHostChangeAt = 0;
@@ -573,7 +581,7 @@ async function applyRoomPlayback(room) {
   }
 
   if (!sameVideo && !resumingHardStoppedSameVideo) {
-    player.cueVideoById({
+    player.loadVideoById({
       videoId: playback.videoId,
       startSeconds: elapsedSec
     });
@@ -674,6 +682,11 @@ function handleRoomUpdate(room) {
 
   if (room.status !== "reveal") {
     revealScoresAppliedRound = -1;
+    lastRenderedRevealRound = -1;
+  }
+
+  if (room.status === "scoring") {
+    maybeFinalizeRoundScoring(room, isHost);
   }
 
   updateHostPlaybackSyncLoop(room, isHost);
@@ -755,6 +768,9 @@ function renderMetaPanel(room) {
       roundEl.style.color = "";
     } else if (room.status === "reveal") {
       roundEl.textContent = `Round ${room.currentRound} of ${room.maxRounds} • Reveal`;
+      roundEl.style.color = "";
+    } else if (room.status === "scoring") {
+      roundEl.textContent = `Round ${room.currentRound} of ${room.maxRounds} • Scoring`;
       roundEl.style.color = "";
     } else {
       roundEl.textContent = `Round ${room.currentRound} of ${room.maxRounds} • ${room.status === "lobby" ? "Lobby" : "Song Selection"}`;
@@ -1485,7 +1501,48 @@ function renderHostPlayingControls(room, isHost) {
 
 // -- Reveal phase --------------------------------------------------------------
 
+function renderScoreProcessingView(room, isHost) {
+  const playlistContainer = document.getElementById("playlist-songs");
+  if (playlistContainer) playlistContainer.innerHTML = "";
+
+  const nextBtn = document.getElementById("next-round-btn");
+  if (nextBtn) nextBtn.style.display = "none";
+
+  const resultsDiv = document.getElementById("round-results");
+  if (!resultsDiv) return;
+
+  const message = isHost
+    ? "Untangling the mixtape lies and counting the damage..."
+    : "Untangling the mixtape lies... scores are coming in.";
+
+  resultsDiv.innerHTML = `<div class="reveal-calculating"><span class="reveal-calc-icon">🎛️</span> ${message}</div>`;
+}
+
+async function maybeFinalizeRoundScoring(room, isHost) {
+  if (!isHost || scoreFinalizeInFlight) return;
+  if (room.revealScoredRound === room.currentRound) return;
+
+  const roundSongs = getSongsForRound(room.currentRound);
+  if (roundSongs.length === 0) return;
+
+  scoreFinalizeInFlight = true;
+  try {
+    await Promise.all(roundSongs.map(song => awardScoresForSong(song)));
+    revealScoresAppliedRound = room.currentRound;
+    await db.collection("rooms").doc(roomId).update({
+      status: "reveal",
+      revealScoredRound: room.currentRound,
+      lastActivityAt: Date.now()
+    });
+  } catch (e) {
+    console.error("Could not finalize round scoring", e);
+  } finally {
+    scoreFinalizeInFlight = false;
+  }
+}
+
 async function renderRevealView(room, isHost) {
+  if (lastRenderedRevealRound === room.currentRound && getVisibleViewId() === "view-reveal") return;
   if (revealRenderInFlight) return;
   revealRenderInFlight = true;
 
@@ -1507,14 +1564,6 @@ async function renderRevealView(room, isHost) {
   if (roundSongs.length === 0) {
     resultsDiv.textContent = "No songs found for this round.";
     return;
-  }
-
-  // Brief "scoring…" placeholder while host runs transactions
-  resultsDiv.innerHTML = "<div class=\"reveal-calculating\"><span class=\"reveal-calc-icon\">\uD83C\uDFB5</span> Scoring round\u2026</div>";
-
-  if (isHost && revealScoresAppliedRound !== room.currentRound) {
-    await Promise.all(roundSongs.map(song => awardScoresForSong(song)));
-    revealScoresAppliedRound = room.currentRound;
   }
 
   // Compute per-player round deltas from local guesses for display
@@ -1645,6 +1694,8 @@ async function renderRevealView(room, isHost) {
       nextBtn.onclick = () => finishGame(roomId);
     }
   }
+
+  lastRenderedRevealRound = room.currentRound;
   } finally {
     revealRenderInFlight = false;
   }

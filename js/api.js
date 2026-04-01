@@ -150,7 +150,7 @@ async function startPlaying(roomId) {
 }
 
 async function revealRound(roomId) {
-  await db.collection("rooms").doc(roomId).update(withRoomActivity({ status: "reveal" }));
+  await db.collection("rooms").doc(roomId).update(withRoomActivity({ status: "scoring" }));
 }
 
 async function nextRound(roomId, nextRound) {
@@ -168,7 +168,8 @@ async function nextRound(roomId, nextRound) {
     currentSongIndex: 0,
     allSongsPlayed: false,
     playback: null,
-    lastActivityAt: nowMs()
+    lastActivityAt: nowMs(),
+    revealScoredRound: null
   });
 
   await batch.commit();
@@ -224,7 +225,8 @@ async function resetGame(roomId) {
     currentSongIndex: 0,
     allSongsPlayed: false,
     playback: null,
-    lastActivityAt: nowMs()
+    lastActivityAt: nowMs(),
+    revealScoredRound: null
   });
 
   await batch.commit();
