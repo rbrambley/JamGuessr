@@ -120,6 +120,9 @@ let hasLoadedPlayersSnapshot = false;
 let hasConfirmedPlayerPresence = false;
 let hostAutoplayEnabled = false;
 let autoplayAdvancePending = false;
+
+let revealRenderInFlight = false;
+let revealScoresAppliedRound = -1;
 let presenceHeartbeatTimer = null;
 let hostElectionTimer = null;
 let lastSeenHostChangeAt = 0;
@@ -668,6 +671,11 @@ function handleRoomUpdate(room) {
 
   currentRoom = room;
   const isHost = !!me.isHost;
+
+  if (room.status !== "reveal") {
+    revealScoresAppliedRound = -1;
+  }
+
   updateHostPlaybackSyncLoop(room, isHost);
 
   if (room.status !== "playing") {
@@ -1478,13 +1486,20 @@ function renderHostPlayingControls(room, isHost) {
 // -- Reveal phase --------------------------------------------------------------
 
 async function renderRevealView(room, isHost) {
+  if (revealRenderInFlight) return;
+  revealRenderInFlight = true;
+
+  try {
   // Clear the guess playlist for ALL clients the moment reveal starts
   const playlistContainer = document.getElementById("playlist-songs");
   if (playlistContainer) playlistContainer.innerHTML = "";
 
-  // Hide the in-view next button — host action lives in the meta panel now
+  // Keep an in-view fallback button so host is never blocked if meta actions fail to paint.
   const nextBtn = document.getElementById("next-round-btn");
-  if (nextBtn) nextBtn.style.display = "none";
+  if (nextBtn) {
+    nextBtn.className = "host-btn compact-control-btn";
+    nextBtn.style.display = isHost ? "block" : "none";
+  }
 
   const roundSongs = getSongsForRound(room.currentRound);
   const resultsDiv = document.getElementById("round-results");
@@ -1497,10 +1512,9 @@ async function renderRevealView(room, isHost) {
   // Brief "scoring…" placeholder while host runs transactions
   resultsDiv.innerHTML = "<div class=\"reveal-calculating\"><span class=\"reveal-calc-icon\">\uD83C\uDFB5</span> Scoring round\u2026</div>";
 
-  if (isHost) {
-    for (const song of roundSongs) {
-      await awardScoresForSong(song);
-    }
+  if (isHost && revealScoresAppliedRound !== room.currentRound) {
+    await Promise.all(roundSongs.map(song => awardScoresForSong(song)));
+    revealScoresAppliedRound = room.currentRound;
   }
 
   // Compute per-player round deltas from local guesses for display
@@ -1621,6 +1635,19 @@ async function renderRevealView(room, isHost) {
 
   summary.appendChild(summaryGrid);
   resultsDiv.appendChild(summary);
+
+  if (nextBtn && isHost) {
+    if (room.currentRound < room.maxRounds) {
+      nextBtn.textContent = "Next Round";
+      nextBtn.onclick = () => nextRound(roomId, room.currentRound + 1);
+    } else {
+      nextBtn.textContent = "Finish Game";
+      nextBtn.onclick = () => finishGame(roomId);
+    }
+  }
+  } finally {
+    revealRenderInFlight = false;
+  }
 }
 
 // -- Scoring -------------------------------------------------------------------
