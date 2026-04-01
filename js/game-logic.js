@@ -1666,10 +1666,18 @@ function renderScoreProcessingView(room, isHost) {
   if (!resultsDiv) return;
 
   const message = isHost
-    ? "Untangling the mixtape lies and counting the damage..."
-    : "Untangling the mixtape lies... scores are coming in.";
+    ? "Calibrating the chaos... your leaderboard drop is almost ready."
+    : "Calibrating the chaos... finalizing who guessed like a legend.";
 
-  resultsDiv.innerHTML = `<div class="reveal-calculating"><span class="reveal-calc-icon">🎛️</span> ${message}</div>`;
+  resultsDiv.innerHTML = `
+    <div class="reveal-calculating">
+      <div class="reveal-calculating-title">SCORES INCOMING</div>
+      <div class="reveal-calculating-copy"><span class="reveal-calc-icon">🎚️</span>${message}</div>
+      <div class="reveal-calculating-bars" aria-hidden="true">
+        <span></span><span></span><span></span><span></span><span></span>
+      </div>
+    </div>
+  `;
 }
 
 function renderFinalProcessingView(room, isHost) {
