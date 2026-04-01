@@ -12,6 +12,7 @@ const STATUS_VIEW_ORDER = {
   playing: ["view-picking", "view-playing"],
   scoring: ["view-playing", "view-reveal"],
   reveal: ["view-playing", "view-reveal"],
+  finalizing: ["view-playing", "view-reveal", "view-final"],
   finished: ["view-playing", "view-reveal", "view-final"]
 };
 
@@ -21,6 +22,7 @@ const CANONICAL_STATUS_VIEW = {
   playing: "view-playing",
   scoring: "view-reveal",
   reveal: "view-reveal",
+  finalizing: "view-final",
   finished: "view-final"
 };
 
@@ -70,7 +72,11 @@ function renderViewById(viewId, room, isHost) {
       }
       break;
     case "view-final":
-      renderFinalResults(players);
+      if (room.status === "finalizing") {
+        renderFinalProcessingView(room, isHost);
+      } else {
+        renderFinalResults(players);
+      }
       break;
     default:
       setView(CANONICAL_STATUS_VIEW[room.status] || "view-lobby");
@@ -131,6 +137,7 @@ let autoplayAdvancePending = false;
 let revealRenderInFlight = false;
 let revealScoresAppliedRound = -1;
 let scoreFinalizeInFlight = false;
+let finalFinalizeInFlight = false;
 let lastRenderedRevealRound = -1;
 let lastRenderedFinalSignature = "";
 let presenceHeartbeatTimer = null;
@@ -795,6 +802,10 @@ function handleRoomUpdate(room) {
 
   if (room.status === "scoring") {
     maybeFinalizeRoundScoring(room, isHost);
+  }
+
+  if (room.status === "finalizing") {
+    maybeFinalizeGameResults(room, isHost);
   }
 
   updateHostPlaybackSyncLoop(room, isHost);
@@ -1661,6 +1672,30 @@ function renderScoreProcessingView(room, isHost) {
   resultsDiv.innerHTML = `<div class="reveal-calculating"><span class="reveal-calc-icon">🎛️</span> ${message}</div>`;
 }
 
+function renderFinalProcessingView(room, isHost) {
+  const podiumEl = document.getElementById("final-podium");
+  const playlist = document.getElementById("full-playlist");
+  const actions = document.querySelector(".final-actions");
+
+  if (playlist) playlist.style.display = "none";
+  if (actions) actions.style.display = "none";
+  if (!podiumEl) return;
+
+  const message = isHost
+    ? "The final scores are dropping... cue the confetti cannons."
+    : "The final scores are dropping... hold onto your aux cord.";
+
+  podiumEl.innerHTML = `
+    <div class="final-processing-shell">
+      <div class="final-processing-burst" aria-hidden="true">
+        <span>♪</span><span>♫</span><span>♬</span><span>♪</span><span>♩</span><span>♫</span>
+      </div>
+      <div class="final-processing-title">FINAL SCORES INCOMING</div>
+      <div class="final-processing-copy">${message}</div>
+    </div>
+  `;
+}
+
 async function maybeFinalizeRoundScoring(room, isHost) {
   if (!isHost || scoreFinalizeInFlight) return;
   if (room.revealScoredRound === room.currentRound) return;
@@ -1684,6 +1719,23 @@ async function maybeFinalizeRoundScoring(room, isHost) {
     console.error("Could not finalize round scoring", e);
   } finally {
     scoreFinalizeInFlight = false;
+  }
+}
+
+async function maybeFinalizeGameResults(room, isHost) {
+  if (!isHost || finalFinalizeInFlight) return;
+
+  finalFinalizeInFlight = true;
+  try {
+    await new Promise(resolve => setTimeout(resolve, 5000));
+    await db.collection("rooms").doc(roomId).update({
+      status: "finished",
+      lastActivityAt: Date.now()
+    });
+  } catch (e) {
+    console.error("Could not finalize game results", e);
+  } finally {
+    finalFinalizeInFlight = false;
   }
 }
 
@@ -1906,6 +1958,11 @@ async function awardScoresForSong(song) {
 // -- Final results -------------------------------------------------------------
 
 async function renderFinalResults(players) {
+  const playlist = document.getElementById("full-playlist");
+  const actions = document.querySelector(".final-actions");
+  if (playlist) playlist.style.display = "block";
+  if (actions) actions.style.display = "flex";
+
   const finalSignature = JSON.stringify({
     status: currentRoom?.status,
     round: currentRoom?.currentRound,
@@ -1968,8 +2025,8 @@ async function renderFinalResults(players) {
     return a.addedAt - b.addedAt;
   });
 
-  const playlist = document.getElementById("full-playlist");
-  playlist.innerHTML = "";
+  const playlistEl = document.getElementById("full-playlist");
+  playlistEl.innerHTML = "";
   allSongs.forEach(s => {
     const picker = players.find(p => p.id === s.pickedBy);
     const li = document.createElement("li");
@@ -1998,7 +2055,7 @@ async function renderFinalResults(players) {
     pickedBy.textContent = `Picked by ${picker ? picker.name : "?"}`;
     li.appendChild(pickedBy);
 
-    playlist.appendChild(li);
+    playlistEl.appendChild(li);
   });
 
   const playAgainBtn = document.getElementById("play-again-btn");

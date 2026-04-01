@@ -180,7 +180,7 @@ async function nextRound(roomId, nextRound) {
 }
 
 async function finishGame(roomId) {
-  await db.collection("rooms").doc(roomId).update(withRoomActivity({ status: "finished" }));
+  await db.collection("rooms").doc(roomId).update(withRoomActivity({ status: "finalizing" }));
 }
 
 async function advanceSong(roomId, nextIndex) {

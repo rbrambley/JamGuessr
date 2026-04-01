@@ -941,6 +941,74 @@ li { margin: 8px 0; line-height: 1.5; }
   margin-right: 6px;
 }
 
+.final-processing-shell {
+  position: relative;
+  overflow: hidden;
+  margin-bottom: 18px;
+  padding: 30px 18px 26px;
+  border: 1px solid rgba(251, 191, 36, 0.35);
+  border-radius: 22px;
+  background:
+    radial-gradient(circle at top, rgba(251, 191, 36, 0.16), transparent 38%),
+    linear-gradient(160deg, rgba(20, 26, 43, 0.96), rgba(37, 47, 76, 0.92));
+  text-align: center;
+  box-shadow: 0 18px 48px rgba(15, 23, 42, 0.38);
+}
+
+.final-processing-title {
+  position: relative;
+  z-index: 1;
+  font-size: 1.25rem;
+  font-weight: 900;
+  letter-spacing: 0.16em;
+  color: #fbbf24;
+}
+
+.final-processing-copy {
+  position: relative;
+  z-index: 1;
+  margin-top: 10px;
+  font-size: 0.96rem;
+  color: #e2e8f0;
+}
+
+.final-processing-burst {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+}
+
+.final-processing-burst span {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  font-size: 1.8rem;
+  opacity: 0;
+  color: #fde68a;
+  animation: finalMusicBurst 1.8s ease-out infinite;
+}
+
+.final-processing-burst span:nth-child(1) { --dx: -120px; --dy: -64px; animation-delay: 0s; }
+.final-processing-burst span:nth-child(2) { --dx: 126px; --dy: -52px; animation-delay: 0.18s; }
+.final-processing-burst span:nth-child(3) { --dx: -82px; --dy: 84px; animation-delay: 0.36s; }
+.final-processing-burst span:nth-child(4) { --dx: 88px; --dy: 96px; animation-delay: 0.54s; }
+.final-processing-burst span:nth-child(5) { --dx: 0px; --dy: -112px; animation-delay: 0.72s; }
+.final-processing-burst span:nth-child(6) { --dx: 0px; --dy: 118px; animation-delay: 0.9s; }
+
+@keyframes finalMusicBurst {
+  0% {
+    transform: translate(-50%, -50%) scale(0.2) rotate(0deg);
+    opacity: 0;
+  }
+  20% {
+    opacity: 1;
+  }
+  100% {
+    transform: translate(calc(-50% + var(--dx)), calc(-50% + var(--dy))) scale(1.2) rotate(24deg);
+    opacity: 0;
+  }
+}
+
 .reveal-card {
   animation: revealSlideIn 0.38s ease-out both;
   animation-delay: calc(var(--reveal-i, 0) * 340ms);
