@@ -250,6 +250,36 @@ function normalizeYouTubeSearchQuery(query) {
   return (query || "").trim().toLowerCase().replace(/\s+/g, " ");
 }
 
+function buildSongDisplayCard(song, options = {}) {
+  const card = document.createElement("div");
+  card.className = "song-search-item song-display-card";
+  if (options.selected) {
+    card.classList.add("song-search-item-selected");
+  }
+
+  const thumb = document.createElement("img");
+  thumb.className = "song-search-thumb";
+  thumb.alt = "thumbnail";
+  thumb.src = song?.thumbnailUrl || "https://i.ytimg.com/vi/default/hqdefault.jpg";
+  card.appendChild(thumb);
+
+  const meta = document.createElement("span");
+  meta.className = "song-search-meta";
+
+  const title = document.createElement("span");
+  title.className = "song-search-title";
+  title.textContent = song?.title || "Unknown Title";
+  meta.appendChild(title);
+
+  const channel = document.createElement("span");
+  channel.className = "song-search-channel";
+  channel.textContent = song?.artist || "Unknown Artist";
+  meta.appendChild(channel);
+
+  card.appendChild(meta);
+  return card;
+}
+
 function clearPlaybackTimer() {
   if (playbackTimer) {
     clearTimeout(playbackTimer);
@@ -819,10 +849,7 @@ function renderSongInputs(currentRound, maxRounds) {
       return;
     }
 
-    const text = document.createElement("div");
-    text.className = "song-search-selected-text";
-    const artist = pickingSelectedSong.artist || "Unknown Artist";
-    text.textContent = `${pickingSelectedSong.title} - ${artist}`;
+    const selectedCard = buildSongDisplayCard(pickingSelectedSong, { selected: true });
 
     const changeBtn = document.createElement("button");
     changeBtn.type = "button";
@@ -836,7 +863,7 @@ function renderSongInputs(currentRound, maxRounds) {
       queryEl?.focus();
     };
 
-    selectedEl.appendChild(text);
+    selectedEl.appendChild(selectedCard);
     selectedEl.appendChild(changeBtn);
     searchBlockEl.style.display = "none";
   }
@@ -957,8 +984,8 @@ function renderSongInputs(currentRound, maxRounds) {
     const myRoundSong = getSongsForRound(currentRound).find(song => song.pickedBy === currentPlayerId);
     if (selectedEl) {
       if (myRoundSong?.title) {
-        const artist = myRoundSong.artist || "Unknown Artist";
-        selectedEl.innerHTML = `<div class="song-search-selected-text">${escapeHtml(myRoundSong.title)} - ${escapeHtml(artist)}</div>`;
+        selectedEl.innerHTML = "";
+        selectedEl.appendChild(buildSongDisplayCard(myRoundSong, { selected: true }));
       } else {
         selectedEl.innerHTML = "";
       }
@@ -1173,10 +1200,7 @@ function renderMasterPlaylist(room) {
       const card = document.createElement("div");
       card.className = "playlist-song";
 
-      const songTitle = document.createElement("div");
-      songTitle.className = "playlist-song-title";
-      songTitle.textContent = `${song.title}${song.artist ? " - " + song.artist : ""}`;
-      card.appendChild(songTitle);
+      card.appendChild(buildSongDisplayCard(song));
 
       const isCurrentRoundSong = song.round === room.currentRound;
       const canGuessNow = room.status === "playing" && isCurrentRoundSong;
@@ -1371,8 +1395,21 @@ async function renderRevealView(room, isHost) {
       g.guessedBy !== song.pickedBy
     ).length;
 
-    const row = document.createElement("p");
-    row.textContent = `${song.title}${song.artist ? " - " + song.artist : ""}: picked by ${picker ? picker.name : "?"}, ${correctCount} correct guess(es).`;
+    const row = document.createElement("div");
+    row.className = "final-playlist-item";
+
+    row.appendChild(buildSongDisplayCard(song));
+
+    const pickedBy = document.createElement("div");
+    pickedBy.className = "playlist-song-note";
+    pickedBy.textContent = `Picked by ${picker ? picker.name : "?"}`;
+    row.appendChild(pickedBy);
+
+    const guessesSummary = document.createElement("div");
+    guessesSummary.className = "playlist-song-note";
+    guessesSummary.textContent = `${correctCount} correct guess(es)`;
+    row.appendChild(guessesSummary);
+
     resultsDiv.appendChild(row);
   });
 
@@ -1451,7 +1488,31 @@ async function renderFinalResults(players) {
   allSongs.forEach(s => {
     const picker = players.find(p => p.id === s.pickedBy);
     const li = document.createElement("li");
-    li.textContent = `Round ${s.round}: ${s.title}${s.artist ? " - " + s.artist : ""} (picked by ${picker ? picker.name : "?"})`;
+    li.className = "final-playlist-item";
+
+    const roundLabel = document.createElement("div");
+    roundLabel.className = "playlist-song-note";
+    roundLabel.textContent = `Round ${s.round}`;
+    li.appendChild(roundLabel);
+
+    const songCard = buildSongDisplayCard(s);
+    if (s.youtubeUrl) {
+      const songLink = document.createElement("a");
+      songLink.className = "final-playlist-link";
+      songLink.href = s.youtubeUrl;
+      songLink.target = "_blank";
+      songLink.rel = "noopener noreferrer";
+      songLink.appendChild(songCard);
+      li.appendChild(songLink);
+    } else {
+      li.appendChild(songCard);
+    }
+
+    const pickedBy = document.createElement("div");
+    pickedBy.className = "playlist-song-note";
+    pickedBy.textContent = `Picked by ${picker ? picker.name : "?"}`;
+    li.appendChild(pickedBy);
+
     playlist.appendChild(li);
   });
 

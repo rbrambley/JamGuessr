@@ -429,6 +429,10 @@ li { margin: 8px 0; line-height: 1.5; }
   padding: 8px;
 }
 
+.song-display-card {
+  cursor: default;
+}
+
 .song-search-item-selected {
   border-color: #f97316;
   box-shadow: inset 0 0 0 1px #f97316;
@@ -474,6 +478,10 @@ li { margin: 8px 0; line-height: 1.5; }
   line-height: 1.4;
   font-weight: 600;
   color: #f8fafc;
+}
+
+.song-search-selected .song-display-card {
+  margin: 0;
 }
 
 .song-change-selection-btn {
@@ -665,6 +673,10 @@ li { margin: 8px 0; line-height: 1.5; }
   margin-bottom: 10px;
 }
 
+.playlist-song .song-display-card {
+  margin-bottom: 8px;
+}
+
 .playlist-song-title {
   font-weight: 600;
   font-size: 1rem;
@@ -764,6 +776,30 @@ li { margin: 8px 0; line-height: 1.5; }
   display: flex;
   gap: 10px;
   flex-wrap: wrap;
+}
+
+#full-playlist {
+  list-style: none;
+  padding: 0;
+  margin: 0 0 10px;
+}
+
+.final-playlist-item {
+  border: 1px solid #303650;
+  border-radius: 14px;
+  padding: 10px;
+  margin-bottom: 10px;
+  background: rgba(20, 26, 43, 0.14);
+}
+
+.final-playlist-link {
+  display: block;
+  text-decoration: none;
+  color: inherit;
+}
+
+.final-playlist-link .song-display-card {
+  cursor: pointer;
 }
 
 .final-actions button {
