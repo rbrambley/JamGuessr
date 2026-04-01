@@ -731,7 +731,7 @@ function renderMetaPanel(room) {
   const playerCount = players.length;
   const playerNameEl = document.getElementById("player-name-display");
   if (playerNameEl) {
-    playerNameEl.textContent = me ? `${me.name} • ${isHost ? "Host" : "Player"}` : "Joining room...";
+    playerNameEl.textContent = "";
   }
 
   const roundEl = document.getElementById("round-display");
@@ -768,9 +768,7 @@ function renderMetaPanel(room) {
       }
     } else {
       pointsEl.classList.remove("meta-status-compact");
-      pointsEl.textContent = room.status === "finished"
-        ? ""
-        : "Scoring: +1 correct guess, +1 reveal bonus";
+      pointsEl.textContent = "";
     }
   }
 
@@ -787,6 +785,23 @@ function renderMetaPanel(room) {
   const isFinished = room.status === "finished";
   const winner = isFinished ? [...players].sort((a, b) => b.score - a.score)[0] : null;
 
+  // Compute per-player round deltas to highlight on chips during reveal
+  const roundDeltas = new Map();
+  if (room.status === "reveal") {
+    const revealRoundSongs = getSongsForRound(room.currentRound);
+    players.forEach(p => roundDeltas.set(p.id, 0));
+    revealRoundSongs.forEach(song => {
+      if (roundDeltas.has(song.pickedBy)) {
+        roundDeltas.set(song.pickedBy, (roundDeltas.get(song.pickedBy) || 0) + POINTS_FOR_PICKER_REVEAL);
+      }
+      guesses.forEach(g => {
+        if (g.songId === song.id && g.guessedPlayerId === song.pickedBy && g.guessedBy !== song.pickedBy) {
+          roundDeltas.set(g.guessedBy, (roundDeltas.get(g.guessedBy) || 0) + POINTS_PER_CORRECT_GUESS);
+        }
+      });
+    });
+  }
+
   players.forEach(p => {
     const btn = document.createElement("button");
     btn.type = "button";
@@ -794,16 +809,27 @@ function renderMetaPanel(room) {
 
     const trophy = isFinished && winner && p.id === winner.id ? " 🏆" : "";
 
-    const name = document.createElement("span");
-    name.className = "player-pill-name";
-    name.textContent = p.name + (p.id === currentPlayerId ? " (You)" : "") + trophy;
-
     const score = document.createElement("span");
     score.className = "player-pill-score";
     score.textContent = `${p.score || 0} pts`;
 
-    btn.appendChild(name);
+    const name = document.createElement("span");
+    name.className = "player-pill-name";
+    name.textContent = p.name + (p.id === currentPlayerId ? " (You)" : "") + trophy;
+
     btn.appendChild(score);
+    btn.appendChild(name);
+
+    if (roundDeltas.size > 0) {
+      const delta = roundDeltas.get(p.id) || 0;
+      if (delta > 0) {
+        const badge = document.createElement("span");
+        badge.className = "player-pill-delta";
+        badge.textContent = `+${delta}`;
+        btn.appendChild(badge);
+        btn.classList.add("player-chip-scoring");
+      }
+    }
 
     btn.disabled = true;
     if (p.id === currentPlayerId) btn.classList.add("player-chip-active");
@@ -814,6 +840,20 @@ function renderMetaPanel(room) {
 
   hostActions.innerHTML = "";
   if (!isHost || room.status === "finished") return;
+
+  if (room.status === "reveal") {
+    const nextBtn = document.createElement("button");
+    nextBtn.type = "button";
+    nextBtn.className = "host-btn compact-control-btn meta-action-btn";
+    if (room.currentRound < room.maxRounds) {
+      nextBtn.textContent = "Next Round";
+      nextBtn.onclick = () => nextRound(roomId, room.currentRound + 1);
+    } else {
+      nextBtn.textContent = "Finish Game";
+      nextBtn.onclick = () => finishGame(roomId);
+    }
+    hostActions.appendChild(nextBtn);
+  }
 
   if (room.status === "lobby") {
     const startBtn = document.createElement("button");
@@ -1438,11 +1478,24 @@ function renderHostPlayingControls(room, isHost) {
 // -- Reveal phase --------------------------------------------------------------
 
 async function renderRevealView(room, isHost) {
+  // Clear the guess playlist for ALL clients the moment reveal starts
+  const playlistContainer = document.getElementById("playlist-songs");
+  if (playlistContainer) playlistContainer.innerHTML = "";
+
+  // Hide the in-view next button — host action lives in the meta panel now
+  const nextBtn = document.getElementById("next-round-btn");
+  if (nextBtn) nextBtn.style.display = "none";
+
   const roundSongs = getSongsForRound(room.currentRound);
+  const resultsDiv = document.getElementById("round-results");
+
   if (roundSongs.length === 0) {
-    document.getElementById("round-results").textContent = "No songs found for this round.";
+    resultsDiv.textContent = "No songs found for this round.";
     return;
   }
+
+  // Brief "scoring…" placeholder while host runs transactions
+  resultsDiv.innerHTML = "<div class=\"reveal-calculating\"><span class=\"reveal-calc-icon\">\uD83C\uDFB5</span> Scoring round\u2026</div>";
 
   if (isHost) {
     for (const song of roundSongs) {
@@ -1450,47 +1503,124 @@ async function renderRevealView(room, isHost) {
     }
   }
 
-  const resultsDiv = document.getElementById("round-results");
+  // Compute per-player round deltas from local guesses for display
+  const roundDeltas = new Map(players.map(p => [p.id, 0]));
+  roundSongs.forEach(song => {
+    if (roundDeltas.has(song.pickedBy)) {
+      roundDeltas.set(song.pickedBy, (roundDeltas.get(song.pickedBy) || 0) + POINTS_FOR_PICKER_REVEAL);
+    }
+    guesses.forEach(g => {
+      if (g.songId === song.id && g.guessedPlayerId === song.pickedBy && g.guessedBy !== song.pickedBy) {
+        roundDeltas.set(g.guessedBy, (roundDeltas.get(g.guessedBy) || 0) + POINTS_PER_CORRECT_GUESS);
+      }
+    });
+  });
+
+  // Build staggered animated reveal cards
   resultsDiv.innerHTML = "";
 
-  roundSongs.forEach(song => {
+  roundSongs.forEach((song, i) => {
     const picker = players.find(p => p.id === song.pickedBy);
-    const correctCount = guesses.filter(g =>
-      g.songId === song.id &&
-      g.guessedPlayerId === song.pickedBy &&
-      g.guessedBy !== song.pickedBy
-    ).length;
+    const songGuesses = guesses.filter(g => g.songId === song.id);
 
     const row = document.createElement("div");
-    row.className = "final-playlist-item";
+    row.className = "final-playlist-item reveal-card";
+    row.style.setProperty("--reveal-i", i);
 
     row.appendChild(buildSongDisplayCard(song));
 
-    const pickedBy = document.createElement("div");
-    pickedBy.className = "playlist-song-note";
-    pickedBy.textContent = `Picked by ${picker ? picker.name : "?"}`;
-    row.appendChild(pickedBy);
+    // Picker reveal row
+    const pickerRow = document.createElement("div");
+    pickerRow.className = "reveal-picker-row";
 
-    const guessesSummary = document.createElement("div");
-    guessesSummary.className = "playlist-song-note";
-    guessesSummary.textContent = `${correctCount} correct guess(es)`;
-    row.appendChild(guessesSummary);
+    const pickerLabel = document.createElement("span");
+    pickerLabel.className = "reveal-picker-name";
+    pickerLabel.textContent = `\uD83C\uDFB5 ${picker ? picker.name : "?"}`;
+    pickerRow.appendChild(pickerLabel);
 
+    const pickerBadge = document.createElement("span");
+    pickerBadge.className = "delta-badge delta-badge-picker";
+    pickerBadge.textContent = `+${POINTS_FOR_PICKER_REVEAL}`;
+    pickerRow.appendChild(pickerBadge);
+
+    row.appendChild(pickerRow);
+
+    // Per-player guess results
+    const guessResults = document.createElement("div");
+    guessResults.className = "reveal-guess-results";
+
+    players.filter(p => p.id !== song.pickedBy).forEach(p => {
+      const g = songGuesses.find(guess => guess.guessedBy === p.id);
+      const isCorrect = g?.guessedPlayerId === song.pickedBy;
+
+      const item = document.createElement("span");
+      item.className = "reveal-guess-item " + (isCorrect ? "reveal-correct" : "reveal-wrong");
+
+      const marker = document.createElement("span");
+      marker.className = "reveal-guess-marker";
+      marker.textContent = isCorrect ? "\u2713" : "\u2717";
+      item.appendChild(marker);
+
+      const pname = document.createElement("span");
+      pname.textContent = p.name;
+      item.appendChild(pname);
+
+      if (isCorrect) {
+        const pts = document.createElement("span");
+        pts.className = "delta-badge";
+        pts.textContent = `+${POINTS_PER_CORRECT_GUESS}`;
+        item.appendChild(pts);
+      }
+
+      guessResults.appendChild(item);
+    });
+
+    row.appendChild(guessResults);
     resultsDiv.appendChild(row);
   });
 
-  const nextBtn = document.getElementById("next-round-btn");
-  nextBtn.style.display = isHost ? "block" : "none";
+  // Round score summary (staggered after the last card)
+  const summary = document.createElement("div");
+  summary.className = "reveal-round-summary";
+  summary.style.setProperty("--reveal-i", roundSongs.length);
 
-  if (isHost) {
-    if (room.currentRound < room.maxRounds) {
-      nextBtn.textContent = "Next Round";
-      nextBtn.onclick = () => nextRound(roomId, room.currentRound + 1);
-    } else {
-      nextBtn.textContent = "Finish Game";
-      nextBtn.onclick = () => finishGame(roomId);
-    }
-  }
+  const summaryTitle = document.createElement("div");
+  summaryTitle.className = "reveal-summary-title";
+  summaryTitle.textContent = "Round scores";
+  summary.appendChild(summaryTitle);
+
+  const summaryGrid = document.createElement("div");
+  summaryGrid.className = "reveal-summary-grid";
+
+  [...players]
+    .sort((a, b) => (b.score || 0) - (a.score || 0))
+    .forEach(p => {
+      const delta = roundDeltas.get(p.id) || 0;
+      const srow = document.createElement("div");
+      srow.className = "reveal-summary-row";
+
+      const pname = document.createElement("span");
+      pname.className = "reveal-summary-name";
+      pname.textContent = p.name + (p.id === currentPlayerId ? " (You)" : "");
+      srow.appendChild(pname);
+
+      const scoreSpan = document.createElement("span");
+      scoreSpan.className = "reveal-summary-score";
+      scoreSpan.textContent = `${p.score || 0} pts`;
+      srow.appendChild(scoreSpan);
+
+      if (delta > 0) {
+        const badge = document.createElement("span");
+        badge.className = "delta-badge";
+        badge.textContent = `+${delta}`;
+        srow.appendChild(badge);
+      }
+
+      summaryGrid.appendChild(srow);
+    });
+
+  summary.appendChild(summaryGrid);
+  resultsDiv.appendChild(summary);
 }
 
 // -- Scoring -------------------------------------------------------------------
@@ -1543,6 +1673,43 @@ async function awardScoresForSong(song) {
 
 async function renderFinalResults(players) {
   const isHost = players.find(p => p.id === currentPlayerId)?.isHost;
+
+  // Ranked podium
+  const podiumEl = document.getElementById("final-podium");
+  if (podiumEl) {
+    podiumEl.innerHTML = "";
+    const podiumTitle = document.createElement("div");
+    podiumTitle.className = "reveal-summary-title";
+    podiumTitle.textContent = "Final standings";
+    podiumEl.appendChild(podiumTitle);
+
+    const grid = document.createElement("div");
+    grid.className = "reveal-podium";
+    const medals = ["🥇", "🥈", "🥉"];
+    [...players].sort((a, b) => (b.score || 0) - (a.score || 0)).forEach((p, i) => {
+      const row = document.createElement("div");
+      row.className = "podium-row" + (i === 0 ? " podium-winner" : "");
+      row.style.setProperty("--reveal-i", i);
+
+      const medal = document.createElement("span");
+      medal.className = "podium-medal";
+      medal.textContent = medals[i] || `${i + 1}.`;
+      row.appendChild(medal);
+
+      const pname = document.createElement("span");
+      pname.className = "podium-name";
+      pname.textContent = p.name + (p.id === currentPlayerId ? " (You)" : "");
+      row.appendChild(pname);
+
+      const scoreSpan = document.createElement("span");
+      scoreSpan.className = "podium-score";
+      scoreSpan.textContent = `${p.score || 0} pts`;
+      row.appendChild(scoreSpan);
+
+      grid.appendChild(row);
+    });
+    podiumEl.appendChild(grid);
+  }
 
   const allSongs = [...(songs || [])].sort((a, b) => {
     if (a.round !== b.round) return a.round - b.round;

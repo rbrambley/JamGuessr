@@ -547,8 +547,8 @@ li { margin: 8px 0; line-height: 1.5; }
 }
 
 .player-button-row {
-  display: flex;
-  flex-wrap: wrap;
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(72px, 1fr));
   gap: 6px;
   margin-top: 10px;
 }
@@ -556,28 +556,29 @@ li { margin: 8px 0; line-height: 1.5; }
 .player-chip {
   margin-top: 0;
   min-height: 0;
-  padding: 7px 10px;
+  padding: 7px 8px;
   border-radius: 999px;
   display: flex;
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  gap: 2px;
+  gap: 1px;
   line-height: 1.1;
   text-align: center;
   white-space: normal;
-  flex: 1 1 clamp(82px, 23%, 120px);
+  width: 100%;
 }
 
 .player-pill-name {
-  font-size: 0.78rem;
-  font-weight: 700;
+  font-size: 0.62rem;
+  font-weight: 600;
+  color: #94a3b8;
 }
 
 .player-pill-score {
-  font-size: 0.66rem;
-  color: #a9b6d5;
-  font-weight: 600;
+  font-size: 0.82rem;
+  color: #e2e8f0;
+  font-weight: 800;
 }
 
 .player-chip-active {
@@ -890,6 +891,215 @@ li { margin: 8px 0; line-height: 1.5; }
 .mobile-tab:disabled {
   opacity: 0.45;
   cursor: not-allowed;
+}
+
+/* ── Reveal animations ───────────────────────────────────────────────────── */
+@keyframes revealSlideIn {
+  from { opacity: 0; transform: translateY(12px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes deltaPop {
+  0%   { transform: scale(0.5); opacity: 0; }
+  60%  { transform: scale(1.3); }
+  100% { transform: scale(1);   opacity: 1; }
+}
+
+.reveal-calculating {
+  padding: 24px 0;
+  text-align: center;
+  color: #94a3b8;
+  font-size: 0.95rem;
+}
+
+.reveal-calc-icon {
+  font-size: 1.3rem;
+  margin-right: 6px;
+}
+
+.reveal-card {
+  animation: revealSlideIn 0.38s ease-out both;
+  animation-delay: calc(var(--reveal-i, 0) * 340ms);
+}
+
+.reveal-picker-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 8px;
+  margin-bottom: 2px;
+}
+
+.reveal-picker-name {
+  font-size: 0.88rem;
+  font-weight: 700;
+  color: #fbbf24;
+}
+
+.reveal-guess-results {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+  margin-top: 6px;
+}
+
+.reveal-guess-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  font-size: 0.76rem;
+  font-weight: 600;
+  padding: 3px 8px;
+  border-radius: 999px;
+}
+
+.reveal-correct {
+  background: rgba(74, 222, 128, 0.13);
+  border: 1px solid rgba(74, 222, 128, 0.38);
+  color: #4ade80;
+}
+
+.reveal-wrong {
+  background: rgba(100, 116, 139, 0.12);
+  border: 1px solid rgba(100, 116, 139, 0.28);
+  color: #64748b;
+}
+
+.reveal-guess-marker {
+  font-size: 0.78rem;
+  font-weight: 800;
+}
+
+.delta-badge {
+  display: inline-block;
+  background: rgba(74, 222, 128, 0.18);
+  border: 1px solid rgba(74, 222, 128, 0.38);
+  color: #4ade80;
+  font-size: 0.66rem;
+  font-weight: 800;
+  border-radius: 999px;
+  padding: 1px 5px;
+  animation: deltaPop 0.32s ease-out both;
+  animation-delay: calc(var(--reveal-i, 0) * 340ms + 180ms);
+  letter-spacing: 0.02em;
+}
+
+.delta-badge-picker {
+  background: rgba(251, 191, 36, 0.18);
+  border-color: rgba(251, 191, 36, 0.4);
+  color: #fbbf24;
+}
+
+.reveal-round-summary {
+  margin-top: 14px;
+  border: 1px solid rgba(130, 149, 193, 0.26);
+  border-radius: 14px;
+  padding: 12px;
+  background: rgba(20, 26, 43, 0.56);
+  animation: revealSlideIn 0.38s ease-out both;
+  animation-delay: calc(var(--reveal-i, 0) * 340ms + 400ms);
+}
+
+.reveal-summary-title {
+  font-size: 0.72rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: #9aa7c7;
+  margin-bottom: 8px;
+}
+
+.reveal-summary-grid {
+  display: grid;
+  gap: 5px;
+}
+
+.reveal-summary-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.reveal-summary-name {
+  flex: 1;
+  font-size: 0.86rem;
+  font-weight: 600;
+  color: #e2e8f0;
+}
+
+.reveal-summary-score {
+  font-size: 0.86rem;
+  font-weight: 700;
+  color: #fbbf24;
+}
+
+/* ── Final results podium ──────────────────────────────────────────────── */
+#final-podium {
+  margin-bottom: 14px;
+}
+
+.reveal-podium {
+  display: grid;
+  gap: 7px;
+  margin-top: 6px;
+}
+
+.podium-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 14px;
+  border: 1px solid rgba(130, 149, 193, 0.2);
+  border-radius: 14px;
+  background: rgba(20, 26, 43, 0.5);
+  animation: revealSlideIn 0.38s ease-out both;
+  animation-delay: calc(var(--reveal-i, 0) * 160ms);
+}
+
+.podium-winner {
+  border-color: rgba(251, 191, 36, 0.5);
+  background: rgba(251, 191, 36, 0.07);
+  box-shadow: 0 0 18px rgba(251, 191, 36, 0.1);
+}
+
+.podium-medal {
+  font-size: 1.4rem;
+  width: 30px;
+  flex: 0 0 30px;
+  text-align: center;
+}
+
+.podium-name {
+  flex: 1;
+  font-weight: 700;
+  font-size: 0.92rem;
+  color: #e2e8f0;
+}
+
+.podium-winner .podium-name {
+  color: #fbbf24;
+}
+
+.podium-score {
+  font-weight: 800;
+  font-size: 1rem;
+  color: #fbbf24;
+}
+
+/* ── Player chip delta badge ─────────────────────────────────────────────── */
+.player-pill-delta {
+  font-size: 0.58rem;
+  font-weight: 800;
+  color: #4ade80;
+  background: rgba(74, 222, 128, 0.15);
+  border: 1px solid rgba(74, 222, 128, 0.32);
+  border-radius: 999px;
+  padding: 1px 4px;
+  margin-top: 1px;
+}
+
+.player-chip-scoring {
+  box-shadow: inset 0 0 0 1px rgba(74, 222, 128, 0.45);
 }
 
 @media (max-width: 520px) {
