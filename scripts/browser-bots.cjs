@@ -15,6 +15,12 @@ const DEFAULT_BASE_URL = "https://rbrambley.github.io/JamGuessr";
 const DEFAULT_BOT_COUNT = 3;
 const MIN_ACTION_DELAY_MS = 1200;
 const MAX_ACTION_DELAY_MS = 2600;
+const BOT_BROWSER_ARGS = [
+  "--autoplay-policy=no-user-gesture-required",
+  "--disable-background-timer-throttling",
+  "--disable-backgrounding-occluded-windows",
+  "--disable-renderer-backgrounding"
+];
 
 const QUERY_BANK = {
   pop: [
@@ -174,7 +180,7 @@ class BotPlayer {
   }
 
   async init() {
-    this.context = await this.browser.newContext();
+    this.context = await this.browser.newContext({ viewport: null });
     this.page = await this.context.newPage();
 
     this.page.on("console", msg => {
@@ -433,7 +439,10 @@ async function main() {
   console.log(`Starting ${botCount} bot(s) for room ${roomCode} at ${baseUrl}`);
   console.log(`Headless: ${headless}`);
 
-  const browser = await playwright.chromium.launch({ headless });
+  const browser = await playwright.chromium.launch({
+    headless,
+    args: BOT_BROWSER_ARGS
+  });
   const bots = [];
 
   try {
