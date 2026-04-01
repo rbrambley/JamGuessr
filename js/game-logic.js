@@ -1067,10 +1067,44 @@ function renderSongInputs(currentRound, maxRounds) {
     searchBtn.disabled = true;
     searchBtn.textContent = "Searching...";
     try {
-      const resp = await fetch(`${YOUTUBE_SEARCH_ENDPOINT}?q=${encodeURIComponent(q)}`);
-      const data = await resp.json();
-      if (!resp.ok) {
-        throw new Error(data?.error?.message || "Search failed");
+      const endpointUrl = `${YOUTUBE_SEARCH_ENDPOINT}?q=${encodeURIComponent(q)}`;
+      let data = null;
+      let found = false;
+
+      for (let attempt = 1; attempt <= 2; attempt++) {
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), 45000);
+
+        try {
+          const resp = await fetch(endpointUrl, { signal: controller.signal });
+          const payload = await resp.json().catch(() => ({}));
+
+          if (resp.ok) {
+            data = payload;
+            found = true;
+            break;
+          }
+
+          const shouldRetry = resp.status >= 500 && attempt < 2;
+          if (!shouldRetry) {
+            throw new Error(payload?.error?.message || `Search failed (${resp.status})`);
+          }
+        } catch (err) {
+          const canRetry = attempt < 2;
+          if (!canRetry) {
+            throw err;
+          }
+        } finally {
+          clearTimeout(timeoutId);
+        }
+
+        searchBtn.textContent = "Waking server...";
+        await new Promise(resolve => setTimeout(resolve, 1200));
+        searchBtn.textContent = "Searching...";
+      }
+
+      if (!found || !data) {
+        throw new Error("Search failed after retry.");
       }
 
       pickingSearchResults = data.items || [];

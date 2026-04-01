@@ -280,7 +280,13 @@ class BotPlayer {
     await searchBtn.click();
 
     const results = this.page.locator(".song-search-item");
-    await results.first().waitFor({ timeout: 12000 });
+    try {
+      await results.first().waitFor({ timeout: 45000 });
+    } catch {
+      // Free-tier backend cold starts can exceed 10s; click once more and wait again.
+      await searchBtn.click();
+      await results.first().waitFor({ timeout: 45000 });
+    }
 
     const count = await results.count();
     if (count === 0) return;
