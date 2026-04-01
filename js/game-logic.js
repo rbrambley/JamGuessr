@@ -111,6 +111,7 @@ let ytPlayer = null;
 let ytPlayerReady = false;
 let playbackTimer = null;
 let lastAppliedPlaybackVersion = null;
+let lastPlaybackApplyAttemptAt = 0;
 let lastLoadedVideoIdForPlayback = null;
 let pausedHeartbeatDebounceTimer = null;
 let hardStoppedVideoId = null;
@@ -554,7 +555,8 @@ async function applyRoomPlayback(room) {
     return;
   }
 
-  if (playback.version && playback.version === lastAppliedPlaybackVersion) {
+  const samePlaybackVersion = playback.version && playback.version === lastAppliedPlaybackVersion;
+  if (samePlaybackVersion && (Date.now() - lastPlaybackApplyAttemptAt) < 2500) {
     return;
   }
 
@@ -562,6 +564,7 @@ async function applyRoomPlayback(room) {
   if (!player) return;
 
   clearPlaybackTimer();
+  lastPlaybackApplyAttemptAt = Date.now();
   lastAppliedPlaybackVersion = playback.version;
   if (isCurrentPlayerHost()) {
     suppressHostPlaybackBroadcastUntil = Date.now() + 1600;
@@ -1635,6 +1638,16 @@ async function renderRevealView(room, isHost) {
   revealRenderInFlight = true;
 
   try {
+  // Fallback: if a client missed the transient "scoring" snapshot, still show
+  // a brief processing message before reveal so the transition feels intentional.
+  if (lastRoomStatus === "playing") {
+    renderScoreProcessingView(room, isHost);
+    await new Promise(resolve => setTimeout(resolve, 1200));
+    if (!currentRoom || currentRoom.currentRound !== room.currentRound || currentRoom.status !== "reveal") {
+      return;
+    }
+  }
+
   // Clear the guess playlist for ALL clients the moment reveal starts
   const playlistContainer = document.getElementById("playlist-songs");
   if (playlistContainer) playlistContainer.innerHTML = "";
