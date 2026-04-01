@@ -1,0 +1,174 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>JamGuessr Final Animation Preview</title>
+  <style>
+    :root {
+      color-scheme: dark;
+      --bg-1: #0f172a;
+      --bg-2: #1e293b;
+      --card-1: rgba(20, 26, 43, 0.96);
+      --card-2: rgba(37, 47, 76, 0.92);
+      --gold: #fbbf24;
+      --gold-soft: #fde68a;
+      --text: #e2e8f0;
+      --muted: #94a3b8;
+    }
+
+    * { box-sizing: border-box; }
+
+    body {
+      margin: 0;
+      min-height: 100vh;
+      display: grid;
+      place-items: center;
+      padding: 24px;
+      font-family: Georgia, "Times New Roman", serif;
+      background:
+        radial-gradient(circle at top, rgba(251, 191, 36, 0.14), transparent 28%),
+        linear-gradient(180deg, var(--bg-2), var(--bg-1));
+      color: var(--text);
+    }
+
+    .preview-shell {
+      width: min(720px, 100%);
+      padding: 24px;
+      border-radius: 28px;
+      background: rgba(15, 23, 42, 0.68);
+      border: 1px solid rgba(148, 163, 184, 0.12);
+      box-shadow: 0 24px 80px rgba(2, 6, 23, 0.45);
+    }
+
+    .eyebrow {
+      margin-bottom: 14px;
+      font-size: 0.8rem;
+      letter-spacing: 0.18em;
+      text-transform: uppercase;
+      color: var(--muted);
+    }
+
+    .final-processing-shell {
+      position: relative;
+      overflow: hidden;
+      margin-bottom: 18px;
+      padding: 30px 18px 26px;
+      border: 1px solid rgba(251, 191, 36, 0.35);
+      border-radius: 22px;
+      background:
+        radial-gradient(circle at top, rgba(251, 191, 36, 0.16), transparent 38%),
+        linear-gradient(160deg, var(--card-1), var(--card-2));
+      text-align: center;
+      box-shadow: 0 18px 48px rgba(15, 23, 42, 0.38);
+    }
+
+    .final-processing-shell::after {
+      content: "";
+      position: absolute;
+      inset: -20%;
+      pointer-events: none;
+      background: radial-gradient(circle, rgba(255, 255, 255, 0.38), rgba(255, 255, 255, 0) 58%);
+      opacity: 0;
+      animation: finalScoreFlash 2.4s ease-out infinite;
+    }
+
+    .final-processing-title {
+      position: relative;
+      z-index: 1;
+      font-size: clamp(1.1rem, 2vw, 1.35rem);
+      font-weight: 900;
+      letter-spacing: 0.16em;
+      color: var(--gold);
+    }
+
+    .final-processing-copy {
+      position: relative;
+      z-index: 1;
+      margin-top: 10px;
+      font-size: 1rem;
+      color: var(--text);
+    }
+
+    .final-processing-burst {
+      position: absolute;
+      inset: 0;
+      pointer-events: none;
+    }
+
+    .final-processing-burst span {
+      position: absolute;
+      left: 50%;
+      top: 50%;
+      font-size: 1.9rem;
+      opacity: 0;
+      color: var(--gold-soft);
+      animation: finalMusicBurst 1.8s ease-out infinite;
+      text-shadow: 0 0 18px rgba(253, 230, 138, 0.35);
+    }
+
+    .final-processing-burst span:nth-child(1) { --dx: -120px; --dy: -64px; animation-delay: 0s; }
+    .final-processing-burst span:nth-child(2) { --dx: 126px; --dy: -52px; animation-delay: 0.18s; }
+    .final-processing-burst span:nth-child(3) { --dx: -82px; --dy: 84px; animation-delay: 0.36s; }
+    .final-processing-burst span:nth-child(4) { --dx: 88px; --dy: 96px; animation-delay: 0.54s; }
+    .final-processing-burst span:nth-child(5) { --dx: 0px; --dy: -112px; animation-delay: 0.72s; }
+    .final-processing-burst span:nth-child(6) { --dx: 0px; --dy: 118px; animation-delay: 0.9s; }
+
+    .note {
+      margin-top: 18px;
+      color: var(--muted);
+      font-size: 0.92rem;
+    }
+
+    @keyframes finalMusicBurst {
+      0% {
+        transform: translate(-50%, -50%) scale(0.2) rotate(0deg);
+        opacity: 0;
+      }
+      20% {
+        opacity: 1;
+      }
+      100% {
+        transform: translate(calc(-50% + var(--dx)), calc(-50% + var(--dy))) scale(1.2) rotate(24deg);
+        opacity: 0;
+      }
+    }
+
+    @keyframes finalScoreFlash {
+      0%, 54%, 100% {
+        opacity: 0;
+        transform: scale(0.86);
+      }
+      10% {
+        opacity: 0.75;
+        transform: scale(1.02);
+      }
+      22% {
+        opacity: 0.18;
+        transform: scale(1.08);
+      }
+      66% {
+        opacity: 0.45;
+        transform: scale(0.98);
+      }
+      78% {
+        opacity: 0.08;
+        transform: scale(1.1);
+      }
+    }
+  </style>
+</head>
+<body>
+  <main class="preview-shell">
+    <div class="eyebrow">JamGuessr Animation Preview</div>
+    <div class="final-processing-shell">
+      <div class="final-processing-burst" aria-hidden="true">
+        <span>♪</span><span>♫</span><span>♬</span><span>♪</span><span>♩</span><span>♫</span>
+      </div>
+      <div class="final-processing-title">FINAL SCORES INCOMING</div>
+      <div class="final-processing-copy">The final scores are dropping... cue the confetti cannons.</div>
+    </div>
+    <div class="note">This is the standalone preview of the new final-processing animation before the podium appears.</div>
+  </main>
+</body>
+</html>

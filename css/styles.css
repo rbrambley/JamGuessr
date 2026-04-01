@@ -955,6 +955,16 @@ li { margin: 8px 0; line-height: 1.5; }
   box-shadow: 0 18px 48px rgba(15, 23, 42, 0.38);
 }
 
+.final-processing-shell::after {
+  content: "";
+  position: absolute;
+  inset: -20%;
+  pointer-events: none;
+  background: radial-gradient(circle, rgba(255, 255, 255, 0.38), rgba(255, 255, 255, 0) 58%);
+  opacity: 0;
+  animation: finalScoreFlash 2.4s ease-out infinite;
+}
+
 .final-processing-title {
   position: relative;
   z-index: 1;
@@ -1006,6 +1016,29 @@ li { margin: 8px 0; line-height: 1.5; }
   100% {
     transform: translate(calc(-50% + var(--dx)), calc(-50% + var(--dy))) scale(1.2) rotate(24deg);
     opacity: 0;
+  }
+}
+
+@keyframes finalScoreFlash {
+  0%, 54%, 100% {
+    opacity: 0;
+    transform: scale(0.86);
+  }
+  10% {
+    opacity: 0.75;
+    transform: scale(1.02);
+  }
+  22% {
+    opacity: 0.18;
+    transform: scale(1.08);
+  }
+  66% {
+    opacity: 0.45;
+    transform: scale(0.98);
+  }
+  78% {
+    opacity: 0.08;
+    transform: scale(1.1);
   }
 }
 
