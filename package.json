@@ -4,7 +4,11 @@
   "private": true,
   "description": "Multiplayer music guessing game with Firebase and shared YouTube search cache.",
   "scripts": {
-    "start": "node server.js"
+    "start": "node server.js",
+    "bots:join": "node scripts/browser-bots.cjs"
+  },
+  "devDependencies": {
+    "playwright": "^1.52.0"
   },
   "engines": {
     "node": ">=18"
