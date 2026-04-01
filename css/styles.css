@@ -625,7 +625,8 @@ li { margin: 8px 0; line-height: 1.5; }
   border-radius: 6px;
   background: transparent;
   z-index: 3;
-  cursor: not-allowed;
+  cursor: default;
+  pointer-events: none;
 }
 
 .audio-unlock-btn {

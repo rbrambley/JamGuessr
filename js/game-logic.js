@@ -137,6 +137,7 @@ let hostElectionTimer = null;
 let lastSeenHostChangeAt = 0;
 let isInitialRoomRender = true;
 let hostPlaybackSyncTimer = null;
+let clientPlaybackGuardTimer = null;
 let hostPlaybackSyncInFlight = false;
 let suppressHostPlaybackBroadcastUntil = 0;
 let audioUnlocked = false;
@@ -191,6 +192,10 @@ function cleanupLocalGameState() {
   if (hostPlaybackSyncTimer) {
     clearInterval(hostPlaybackSyncTimer);
     hostPlaybackSyncTimer = null;
+  }
+  if (clientPlaybackGuardTimer) {
+    clearInterval(clientPlaybackGuardTimer);
+    clientPlaybackGuardTimer = null;
   }
   if (pausedHeartbeatDebounceTimer) {
     clearTimeout(pausedHeartbeatDebounceTimer);
@@ -497,6 +502,50 @@ function updateHostPlaybackSyncLoop(room, isHost) {
   }, 3000);
 }
 
+async function guardClientPlaybackSync(room) {
+  if (!room || isCurrentPlayerHost()) return;
+  if (room.status !== "playing" || room.allSongsPlayed) return;
+  if (!ytPlayer || !ytPlayerReady) return;
+
+  const playback = room.playback;
+  if (!playback || playback.round !== room.currentRound || playback.songIndex !== room.currentSongIndex) return;
+
+  try {
+    const playerState = ytPlayer.getPlayerState();
+    const actualSec = Math.max(0, Number(ytPlayer.getCurrentTime?.() || 0));
+    const expectedSec = playback.status === "paused"
+      ? Math.max(0, Number(playback.pausedAtSec || 0))
+      : Math.max(0, (Date.now() - (playback.startAtMs || Date.now())) / 1000);
+    const driftSec = Math.abs(actualSec - expectedSec);
+    const shouldBePlaying = playback.status !== "paused";
+    const isPlayingState = window.YT && (playerState === YT.PlayerState.PLAYING || playerState === YT.PlayerState.BUFFERING);
+    const isPausedState = window.YT && playerState === YT.PlayerState.PAUSED;
+
+    if ((shouldBePlaying && (!isPlayingState || driftSec > 2.5)) || (!shouldBePlaying && !isPausedState)) {
+      await applyRoomPlayback(room);
+    }
+  } catch (e) {
+    // Best-effort local correction only.
+  }
+}
+
+function updateClientPlaybackGuardLoop(room, isHost) {
+  const shouldRun = !isHost && room?.status === "playing" && !room?.allSongsPlayed;
+  if (!shouldRun) {
+    if (clientPlaybackGuardTimer) {
+      clearInterval(clientPlaybackGuardTimer);
+      clientPlaybackGuardTimer = null;
+    }
+    return;
+  }
+
+  if (clientPlaybackGuardTimer) return;
+
+  clientPlaybackGuardTimer = setInterval(() => {
+    guardClientPlaybackSync(currentRoom);
+  }, 1500);
+}
+
 function handleHostPlaybackStateChange(ytState) {
   if (!isCurrentPlayerHost()) return;
   if (!currentRoom || currentRoom.status !== "playing") return;
@@ -744,6 +793,7 @@ function handleRoomUpdate(room) {
   }
 
   updateHostPlaybackSyncLoop(room, isHost);
+  updateClientPlaybackGuardLoop(room, isHost);
 
   if (room.status !== "playing") {
     stopYouTubePlayback();
@@ -1291,13 +1341,13 @@ function setYouTubeInteractionLock(isHost) {
   const shell = document.querySelector(".youtube-player-shell");
   if (!shell) return;
 
-  shell.classList.toggle("youtube-player-locked", !isHost);
+  shell.classList.toggle("youtube-player-locked", false);
 
   const statusEl = document.getElementById("youtube-player-status");
   if (!statusEl) return;
 
   if (!isHost && !statusEl.textContent) {
-    statusEl.textContent = "Playback is host-controlled to keep everyone in sync.";
+    statusEl.textContent = "Playback follows the host. You can skip ads; local scrubs will snap back.";
   }
 }
 
@@ -1617,7 +1667,7 @@ async function maybeFinalizeRoundScoring(room, isHost) {
   try {
     await Promise.all([
       Promise.all(roundSongs.map(song => awardScoresForSong(song))),
-      new Promise(resolve => setTimeout(resolve, 1800))
+      new Promise(resolve => setTimeout(resolve, 5000))
     ]);
     revealScoresAppliedRound = room.currentRound;
     await db.collection("rooms").doc(roomId).update({
