@@ -1642,7 +1642,7 @@ async function renderRevealView(room, isHost) {
   // a brief processing message before reveal so the transition feels intentional.
   if (lastRoomStatus === "playing") {
     renderScoreProcessingView(room, isHost);
-    await new Promise(resolve => setTimeout(resolve, 1200));
+    await new Promise(resolve => setTimeout(resolve, 5000));
     if (!currentRoom || currentRoom.currentRound !== room.currentRound || currentRoom.status !== "reveal") {
       return;
     }
