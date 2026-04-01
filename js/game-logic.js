@@ -727,6 +727,8 @@ function resetPickingView() {
 function renderMetaPanel(room) {
   const me = players.find(p => p.id === currentPlayerId);
   const isHost = !!me?.isHost;
+  const minimumPlayers = 2;
+  const playerCount = players.length;
   const playerNameEl = document.getElementById("player-name-display");
   if (playerNameEl) {
     playerNameEl.textContent = me ? `${me.name} • ${isHost ? "Host" : "Player"}` : "Joining room...";
@@ -754,9 +756,22 @@ function renderMetaPanel(room) {
 
   const pointsEl = document.getElementById("points-display");
   if (pointsEl) {
-    pointsEl.textContent = room.status === "finished"
-      ? ""
-      : "Scoring: +1 correct guess, +1 reveal bonus";
+    if (room.status === "lobby") {
+      pointsEl.classList.add("meta-status-compact");
+      const needed = Math.max(0, minimumPlayers - playerCount);
+      if (needed > 0) {
+        pointsEl.textContent = `${playerCount}/${minimumPlayers} connected • ${needed} more needed`;
+      } else if (isHost) {
+        pointsEl.textContent = `${playerCount} connected • ready to start`;
+      } else {
+        pointsEl.textContent = `${playerCount} connected • waiting on host`;
+      }
+    } else {
+      pointsEl.classList.remove("meta-status-compact");
+      pointsEl.textContent = room.status === "finished"
+        ? ""
+        : "Scoring: +1 correct guess, +1 reveal bonus";
+    }
   }
 
   const metaLabelEl = document.querySelector("#game-meta .meta-label");
@@ -800,9 +815,25 @@ function renderMetaPanel(room) {
   hostActions.innerHTML = "";
   if (!isHost || room.status === "finished") return;
 
+  if (room.status === "lobby") {
+    const startBtn = document.createElement("button");
+    startBtn.type = "button";
+    startBtn.className = "host-btn compact-control-btn meta-action-btn";
+    startBtn.disabled = playerCount < minimumPlayers;
+    startBtn.textContent = playerCount < minimumPlayers ? `Need ${minimumPlayers} Players` : "Start Round 1";
+    startBtn.onclick = () => {
+      if (playerCount < minimumPlayers) {
+        alert("Need at least 2 players to start.");
+        return;
+      }
+      startGame(roomId);
+    };
+    hostActions.appendChild(startBtn);
+  }
+
   const endBtn = document.createElement("button");
   endBtn.type = "button";
-  endBtn.className = "secondary-btn danger-btn";
+  endBtn.className = "secondary-btn danger-btn compact-control-btn meta-action-btn";
   endBtn.textContent = "End Match";
   endBtn.onclick = async () => {
     const ok = confirm("End this match for all players and close the room?");

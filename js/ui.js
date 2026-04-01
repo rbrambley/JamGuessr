@@ -134,18 +134,4 @@ function renderLobby(players, code, isHost) {
     list.appendChild(li);
   });
 
-  const startBtn = document.getElementById("start-game-btn");
-  startBtn.style.display = isHost ? "block" : "none";
-  startBtn.disabled = playerCount < minimumPlayers;
-  startBtn.textContent = playerCount < minimumPlayers
-    ? `Start Round 1 (Need ${minimumPlayers} players)`
-    : "Start Round 1";
-
-  startBtn.onclick = () => {
-    if (playerCount < minimumPlayers) {
-      alert("Need at least 2 players to start.");
-      return;
-    }
-    startGame(roomId);
-  };
 }
