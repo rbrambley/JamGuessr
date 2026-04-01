@@ -127,6 +127,7 @@ let isInitialRoomRender = true;
 let hostPlaybackSyncTimer = null;
 let hostPlaybackSyncInFlight = false;
 let suppressHostPlaybackBroadcastUntil = 0;
+let allSubmissionsUnsub = null;
 
 // -- Room listeners ------------------------------------------------------------
 
@@ -180,6 +181,10 @@ function cleanupLocalGameState() {
   if (pausedHeartbeatDebounceTimer) {
     clearTimeout(pausedHeartbeatDebounceTimer);
     pausedHeartbeatDebounceTimer = null;
+  }
+  if (allSubmissionsUnsub) {
+    allSubmissionsUnsub();
+    allSubmissionsUnsub = null;
   }
   stopYouTubePlayback();
   hardStoppedVideoId = null;
@@ -975,13 +980,16 @@ function renderSongInputs(currentRound, maxRounds) {
 
   const me = players.find(p => p.id === currentPlayerId);
   if (me?.submitted) {
+    const isHost = !!me?.isHost;
+    if (isHost) watchForAllSubmissions();
+
     submitBtn.style.display = "none";
     waitingMsg.style.display = "block";
     waitingMsg.textContent = "Waiting for other players to submit this round's song...";
 
     if (searchBlockEl) searchBlockEl.style.display = "none";
 
-    const myRoundSong = getSongsForRound(currentRound).find(song => song.pickedBy === currentPlayerId);
+    const myRoundSong = getSongsForRound(currentRound).find(song => song.pickedBy === currentPlayerId) || pickingSelectedSong;
     if (selectedEl) {
       if (myRoundSong?.title) {
         selectedEl.innerHTML = "";
@@ -1020,12 +1028,19 @@ function renderSongInputs(currentRound, maxRounds) {
 }
 
 function watchForAllSubmissions() {
-  const unsub = db.collection("rooms").doc(roomId).collection("players")
+  if (allSubmissionsUnsub) return;
+
+  allSubmissionsUnsub = db.collection("rooms").doc(roomId).collection("players")
     .onSnapshot(snap => {
       const all = snap.docs.map(d => d.data());
       if (all.length > 0 && all.every(p => p.submitted)) {
-        unsub();
-        startPlaying(roomId);
+        if (allSubmissionsUnsub) {
+          allSubmissionsUnsub();
+          allSubmissionsUnsub = null;
+        }
+        startPlaying(roomId).catch(e => {
+          console.error("Failed to start playing phase:", e);
+        });
       }
     });
 }
