@@ -107,6 +107,8 @@ let playbackTimer = null;
 let lastAppliedPlaybackVersion = null;
 let lastLoadedVideoIdForPlayback = null;
 let pausedHeartbeatDebounceTimer = null;
+let hardStoppedVideoId = null;
+let hardStoppedAtSec = 0;
 
 const YOUTUBE_SEARCH_MIN_QUERY_LENGTH = 4;
 const YOUTUBE_SEARCH_COOLDOWN_MS = 1000;
@@ -179,6 +181,9 @@ function cleanupLocalGameState() {
     clearTimeout(pausedHeartbeatDebounceTimer);
     pausedHeartbeatDebounceTimer = null;
   }
+  stopYouTubePlayback();
+  hardStoppedVideoId = null;
+  hardStoppedAtSec = 0;
   lastLoadedVideoIdForPlayback = null;
   localStorage.removeItem("jamguessr_roomId");
   sessionStorage.removeItem("jamguessr_playerId");
@@ -249,6 +254,21 @@ function clearPlaybackTimer() {
   if (playbackTimer) {
     clearTimeout(playbackTimer);
     playbackTimer = null;
+  }
+}
+
+function stopYouTubePlayback() {
+  clearPlaybackTimer();
+  if (!ytPlayer || !ytPlayerReady) return;
+
+  try {
+    const currentVideoId = ytPlayer.getVideoData?.()?.video_id || lastLoadedVideoIdForPlayback;
+    hardStoppedVideoId = currentVideoId || null;
+    hardStoppedAtSec = Math.max(0, Number(ytPlayer.getCurrentTime?.() || 0));
+    ytPlayer.pauseVideo();
+    ytPlayer.stopVideo();
+  } catch (e) {
+    // Best-effort stop; player may not be ready during fast view transitions.
   }
 }
 
@@ -500,8 +520,21 @@ async function applyRoomPlayback(room) {
   // after is unreliable (the cue is async).  For same-video resumes/seeks —
   // which includes ad-end recovery — skip straight to seekTo + play/pause.
   const sameVideo = lastLoadedVideoIdForPlayback === playback.videoId;
+  const isDirectRevealToPlaying = lastRoomStatus === "reveal" && room.status === "playing";
+  const resumingHardStoppedSameVideo =
+    isDirectRevealToPlaying && hardStoppedVideoId === playback.videoId;
 
-  if (!sameVideo) {
+  // If we hard-stopped on reveal/end and are resuming the same song, load it
+  // directly at the synced position for a smoother return to playing.
+  if (resumingHardStoppedSameVideo) {
+    player.loadVideoById({
+      videoId: playback.videoId,
+      startSeconds: elapsedSec
+    });
+    lastLoadedVideoIdForPlayback = playback.videoId;
+  }
+
+  if (!sameVideo && !resumingHardStoppedSameVideo) {
     player.cueVideoById({
       videoId: playback.videoId,
       startSeconds: elapsedSec
@@ -511,7 +544,7 @@ async function applyRoomPlayback(room) {
 
   playbackTimer = setTimeout(() => {
     try {
-      if (!sameVideo || elapsedSec > 0.5) {
+      if (!sameVideo || resumingHardStoppedSameVideo || elapsedSec > 0.5) {
         player.seekTo(elapsedSec, true);
       }
       if (status === "paused") {
@@ -520,6 +553,8 @@ async function applyRoomPlayback(room) {
         player.playVideo();
       }
       if (statusEl && status === "playing") statusEl.textContent = "Playing";
+      hardStoppedVideoId = null;
+      hardStoppedAtSec = 0;
     } catch (e) {
       if (statusEl) statusEl.textContent = "Playback blocked. Click player to start audio.";
     }
@@ -599,6 +634,11 @@ function handleRoomUpdate(room) {
   currentRoom = room;
   const isHost = !!me.isHost;
   updateHostPlaybackSyncLoop(room, isHost);
+
+  if (room.status !== "playing") {
+    stopYouTubePlayback();
+  }
+
   renderMetaPanel(room);
 
   if (room.status === "playing") {
@@ -994,6 +1034,14 @@ function getPlayedSongsForRound(room) {
   return roundSongs.slice(0, playedCount);
 }
 
+function hasStartedPlaybackForCurrentSong(room) {
+  const playback = room?.playback;
+  if (!playback) return false;
+  if (playback.round !== room.currentRound) return false;
+  if (playback.songIndex !== room.currentSongIndex) return false;
+  return !!playback.videoId;
+}
+
 function renderPlayingView(room, isHost) {
   renderNowPlayingBanner(room);
   renderMasterPlaylist(room);
@@ -1040,6 +1088,13 @@ function renderNowPlayingBanner(room) {
     return;
   }
 
+  if (!hasStartedPlaybackForCurrentSong(room)) {
+    banner.textContent = "Host has not started this song yet.";
+    const statusEl = document.getElementById("youtube-player-status");
+    if (statusEl) statusEl.textContent = "Waiting for host to start playback...";
+    return;
+  }
+
   banner.innerHTML = `<span class="now-playing-label">Now Playing:</span> <strong>${currentSong.title}</strong>${currentSong.artist ? " - " + currentSong.artist : ""}`;
 
   const statusEl = document.getElementById("youtube-player-status");
@@ -1055,13 +1110,17 @@ function renderMasterPlaylist(room) {
   if (!container) return;
   container.innerHTML = "";
 
+  const currentSongStarted = hasStartedPlaybackForCurrentSong(room);
+
   const visibleSongs = (songs || [])
     .filter(song => {
       if (song.round < room.currentRound) return true;
       if (song.round > room.currentRound) return false;
       const roundSongs = getSongsForRound(room.currentRound);
       const indexInRound = roundSongs.findIndex(s => s.id === song.id);
-      const playedCount = room.allSongsPlayed ? roundSongs.length : (room.currentSongIndex + 1);
+      const playedCount = room.allSongsPlayed
+        ? roundSongs.length
+        : (currentSongStarted ? room.currentSongIndex + 1 : 0);
       return indexInRound > -1 && indexInRound < playedCount;
     })
     .sort((a, b) => {
@@ -1237,6 +1296,13 @@ function renderHostPlayingControls(room, isHost) {
       nextBtn.onclick = () => markAllSongsPlayed(roomId);
     }
     row.appendChild(nextBtn);
+
+    if (!hasStartedPlaybackForCurrentSong(room)) {
+      const queuedNote = document.createElement("div");
+      queuedNote.className = "guess-progress";
+      queuedNote.textContent = "Song queued, not revealed to players yet";
+      hostControls.appendChild(queuedNote);
+    }
 
     const autoplayRow = document.createElement("div");
     autoplayRow.className = "host-inline-controls-row";
