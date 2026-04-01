@@ -2,6 +2,7 @@ const http = require("http");
 const fs = require("fs");
 const path = require("path");
 const { URL } = require("url");
+const admin = require("firebase-admin");
 
 const PORT = Number(process.env.PORT || 3000);
 const YOUTUBE_API_KEY = process.env.YOUTUBE_API_KEY || "";
@@ -14,8 +15,107 @@ const MAX_VIDEO_DURATION_SECONDS = 12 * 60;
 const MIN_VIDEO_DURATION_SECONDS = 30;
 const CACHE_TTL_MS = 24 * 60 * 60 * 1000;
 const ROOT_DIR = __dirname;
+const CLEANUP_INTERVAL_MS = Number(process.env.ROOM_CLEANUP_INTERVAL_MS || (5 * 60 * 1000));
+const CLEANUP_SCAN_LIMIT = Number(process.env.ROOM_CLEANUP_SCAN_LIMIT || 200);
+const CLEANUP_MAX_DELETE_PER_RUN = Number(process.env.ROOM_CLEANUP_MAX_DELETE_PER_RUN || 25);
+const CLEANUP_LOBBY_IDLE_MS = Number(process.env.ROOM_CLEANUP_LOBBY_IDLE_MS || (30 * 60 * 1000));
+const CLEANUP_ACTIVE_IDLE_MS = Number(process.env.ROOM_CLEANUP_ACTIVE_IDLE_MS || (2 * 60 * 60 * 1000));
+const CLEANUP_FINISHED_IDLE_MS = Number(process.env.ROOM_CLEANUP_FINISHED_IDLE_MS || (24 * 60 * 60 * 1000));
 
 const cache = new Map();
+let cleanupBusy = false;
+let adminDb = null;
+
+function parseServiceAccountJson() {
+  const raw = process.env.FIREBASE_SERVICE_ACCOUNT_JSON || "";
+  if (!raw) return null;
+  try {
+    const parsed = JSON.parse(raw);
+    if (parsed.private_key) {
+      parsed.private_key = parsed.private_key.replace(/\\n/g, "\n");
+    }
+    return parsed;
+  } catch (e) {
+    console.warn("Warning: FIREBASE_SERVICE_ACCOUNT_JSON is not valid JSON. Cleanup worker disabled.");
+    return null;
+  }
+}
+
+function initAdminDb() {
+  if (adminDb) return adminDb;
+
+  try {
+    const sa = parseServiceAccountJson();
+    const app = sa
+      ? admin.initializeApp({ credential: admin.credential.cert(sa) })
+      : admin.initializeApp();
+    adminDb = app.firestore();
+    return adminDb;
+  } catch (e) {
+    console.warn("Warning: could not initialize firebase-admin. Cleanup worker disabled.", e.message || e);
+    return null;
+  }
+}
+
+function roomLastActivityAt(room) {
+  return Number(
+    room.lastActivityAt ||
+    room.lastHostChange?.changedAt ||
+    room.createdAt ||
+    0
+  );
+}
+
+function roomIdleTtlMs(status) {
+  if (status === "lobby") return CLEANUP_LOBBY_IDLE_MS;
+  if (status === "finished") return CLEANUP_FINISHED_IDLE_MS;
+  return CLEANUP_ACTIVE_IDLE_MS;
+}
+
+function shouldDeleteRoom(room, now) {
+  const last = roomLastActivityAt(room);
+  if (!last) return false;
+  return (now - last) >= roomIdleTtlMs(room.status || "lobby");
+}
+
+async function runRoomCleanup() {
+  if (cleanupBusy) return;
+  cleanupBusy = true;
+
+  try {
+    const db = initAdminDb();
+    if (!db) return;
+
+    const now = Date.now();
+    const roomsSnap = await db.collection("rooms").limit(CLEANUP_SCAN_LIMIT).get();
+    if (roomsSnap.empty) return;
+
+    const staleDocs = roomsSnap.docs.filter(doc => shouldDeleteRoom(doc.data() || {}, now));
+    if (staleDocs.length === 0) return;
+
+    const toDelete = staleDocs.slice(0, CLEANUP_MAX_DELETE_PER_RUN);
+    for (const doc of toDelete) {
+      await db.recursiveDelete(doc.ref);
+    }
+
+    console.log(`[cleanup] deleted ${toDelete.length} stale room(s)`);
+  } catch (e) {
+    console.warn("[cleanup] failed:", e.message || e);
+  } finally {
+    cleanupBusy = false;
+  }
+}
+
+function startCleanupWorker() {
+  // Attempt immediate run soon after boot, then continue on interval.
+  setTimeout(() => {
+    runRoomCleanup();
+  }, 10 * 1000);
+
+  setInterval(() => {
+    runRoomCleanup();
+  }, CLEANUP_INTERVAL_MS);
+}
 
 const MIME_TYPES = {
   ".html": "text/html; charset=utf-8",
@@ -271,4 +371,5 @@ server.listen(PORT, () => {
   if (!YOUTUBE_API_KEY) {
     console.warn("Warning: YOUTUBE_API_KEY is not set. /api/youtube-search will fail until you provide it.");
   }
+  startCleanupWorker();
 });

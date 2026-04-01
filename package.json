@@ -3,6 +3,9 @@
   "version": "1.0.0",
   "private": true,
   "description": "Multiplayer music guessing game with Firebase and shared YouTube search cache.",
+  "dependencies": {
+    "firebase-admin": "^13.0.0"
+  },
   "scripts": {
     "start": "node server.js",
     "bots:join": "node scripts/browser-bots.cjs"

@@ -77,6 +77,25 @@ This repo includes `render.yaml` so you can deploy the backend with Render Bluep
 ```text
 YOUTUBE_API_KEY=YOUR_YOUTUBE_DATA_API_KEY
 ALLOWED_ORIGIN=https://<your-username>.github.io
+FIREBASE_SERVICE_ACCOUNT_JSON={"type":"service_account",...}
+```
+
+`FIREBASE_SERVICE_ACCOUNT_JSON` enables automatic stale room cleanup in `server.js`.
+The worker runs every 5 minutes by default and recursively deletes rooms that are idle too long:
+
+- `lobby`: 30 minutes idle
+- `picking` / `playing` / `reveal`: 2 hours idle
+- `finished`: 24 hours idle
+
+Optional tuning env vars:
+
+```text
+ROOM_CLEANUP_INTERVAL_MS=300000
+ROOM_CLEANUP_SCAN_LIMIT=200
+ROOM_CLEANUP_MAX_DELETE_PER_RUN=25
+ROOM_CLEANUP_LOBBY_IDLE_MS=1800000
+ROOM_CLEANUP_ACTIVE_IDLE_MS=7200000
+ROOM_CLEANUP_FINISHED_IDLE_MS=86400000
 ```
 
 If your site will be served from `https://<your-username>.github.io/<repo-name>/`, the allowed origin is still:

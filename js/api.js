@@ -1,7 +1,19 @@
 // ── Room management ──────────────────────────────────────────────────────────
 
+function nowMs() {
+  return Date.now();
+}
+
+function withRoomActivity(patch = {}) {
+  return {
+    ...patch,
+    lastActivityAt: nowMs()
+  };
+}
+
 async function createRoom(hostName, maxRounds) {
   const code = Math.random().toString(36).substring(2, 6).toUpperCase();
+  const now = nowMs();
   const roomRef = await db.collection("rooms").add({
     code,
     hostName,
@@ -10,7 +22,8 @@ async function createRoom(hostName, maxRounds) {
     currentRound: 1,
     currentSongIndex: 0,
     allSongsPlayed: false,
-    createdAt: Date.now()
+    createdAt: now,
+    lastActivityAt: now
   });
   // Add host as first player
   const playerRef = await db.collection("rooms").doc(roomRef.id)
@@ -49,6 +62,8 @@ async function joinRoom(code, playerName) {
       lastSeen: Date.now(),
       joinedAt: Date.now()
     });
+
+  await db.collection("rooms").doc(roomId).update(withRoomActivity());
 
   localStorage.setItem("jamguessr_roomId", roomId);
   sessionStorage.setItem("jamguessr_playerId", playerRef.id);
@@ -121,7 +136,7 @@ async function submitGuess(roomId, playerId, songId, guessedPlayerId) {
 // ── Host controls ─────────────────────────────────────────────────────────────
 
 async function startGame(roomId) {
-  await db.collection("rooms").doc(roomId).update({ status: "picking" });
+  await db.collection("rooms").doc(roomId).update(withRoomActivity({ status: "picking" }));
 }
 
 async function startPlaying(roomId) {
@@ -129,12 +144,13 @@ async function startPlaying(roomId) {
     status: "playing",
     currentSongIndex: 0,
     allSongsPlayed: false,
-    playback: null
+    playback: null,
+    lastActivityAt: nowMs()
   });
 }
 
 async function revealRound(roomId) {
-  await db.collection("rooms").doc(roomId).update({ status: "reveal" });
+  await db.collection("rooms").doc(roomId).update(withRoomActivity({ status: "reveal" }));
 }
 
 async function nextRound(roomId, nextRound) {
@@ -151,30 +167,32 @@ async function nextRound(roomId, nextRound) {
     currentRound: nextRound,
     currentSongIndex: 0,
     allSongsPlayed: false,
-    playback: null
+    playback: null,
+    lastActivityAt: nowMs()
   });
 
   await batch.commit();
 }
 
 async function finishGame(roomId) {
-  await db.collection("rooms").doc(roomId).update({ status: "finished" });
+  await db.collection("rooms").doc(roomId).update(withRoomActivity({ status: "finished" }));
 }
 
 async function advanceSong(roomId, nextIndex) {
   await db.collection("rooms").doc(roomId).update({
     currentSongIndex: nextIndex,
     status: "playing",
-    playback: null
+    playback: null,
+    lastActivityAt: nowMs()
   });
 }
 
 async function syncRoomPlayback(roomId, playback) {
-  await db.collection("rooms").doc(roomId).update({ playback });
+  await db.collection("rooms").doc(roomId).update(withRoomActivity({ playback }));
 }
 
 async function markAllSongsPlayed(roomId) {
-  await db.collection("rooms").doc(roomId).update({ allSongsPlayed: true });
+  await db.collection("rooms").doc(roomId).update(withRoomActivity({ allSongsPlayed: true }));
 }
 
 async function resetGame(roomId) {
@@ -205,7 +223,8 @@ async function resetGame(roomId) {
     currentRound: 1,
     currentSongIndex: 0,
     allSongsPlayed: false,
-    playback: null
+    playback: null,
+    lastActivityAt: nowMs()
   });
 
   await batch.commit();
@@ -248,6 +267,7 @@ async function leaveRoom(roomId, playerId) {
     });
 
     tx.update(roomRef, {
+      lastActivityAt: now,
       lastHostChange: {
         previousHostId: playerId,
         hostId: replacement.id,
@@ -306,6 +326,7 @@ async function ensureActiveHost(roomId, staleAfterMs = 25000) {
     });
 
     tx.update(roomRef, {
+      lastActivityAt: now,
       lastHostChange: {
         previousHostId: currentHostId,
         hostId: replacementId,
