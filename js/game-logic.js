@@ -140,6 +140,7 @@ let hostPlaybackSyncInFlight = false;
 let suppressHostPlaybackBroadcastUntil = 0;
 let audioUnlocked = false;
 let allSubmissionsUnsub = null;
+let lastAttemptedHostReclaimAt = 0;
 
 // -- Room listeners ------------------------------------------------------------
 
@@ -230,6 +231,23 @@ async function ensureRoomHasActiveHost() {
   }
 }
 
+async function maybeReclaimHost(room) {
+  if (!roomId || !currentPlayerId || !room?.lastHostChange?.changedAt) return;
+  if (players.find(p => p.id === currentPlayerId)?.isHost) return;
+
+  const hostChange = room.lastHostChange;
+  if (hostChange.previousHostId !== currentPlayerId) return;
+  if (!["host_disconnected", "host_missing"].includes(hostChange.reason)) return;
+  if (hostChange.changedAt <= lastAttemptedHostReclaimAt) return;
+
+  lastAttemptedHostReclaimAt = hostChange.changedAt;
+  try {
+    await reclaimHostIfEligible(roomId, currentPlayerId);
+  } catch (e) {
+    console.error("Host reclaim failed", e);
+  }
+}
+
 function setupPresenceAndHostMonitoring() {
   touchPlayerPresence();
   ensureRoomHasActiveHost();
@@ -250,6 +268,9 @@ function setupPresenceAndHostMonitoring() {
     if (document.visibilityState === "visible") {
       touchPlayerPresence();
       ensureRoomHasActiveHost();
+      if (currentRoom) {
+        maybeReclaimHost(currentRoom);
+      }
     }
   });
 }
@@ -689,7 +710,14 @@ function handleRoomUpdate(room) {
   const hostChange = room.lastHostChange;
   if (hostChange?.changedAt && hostChange.changedAt > lastSeenHostChangeAt) {
     if (!isInitialRoomRender) {
-      if (hostChange.hostId === currentPlayerId) {
+      if (hostChange.reason === "host_reclaimed") {
+        if (hostChange.hostId === currentPlayerId) {
+          alert("Host controls returned to you.");
+        } else {
+          const nextHostName = hostChange.hostName || "A player";
+          alert(`${nextHostName} reclaimed host controls.`);
+        }
+      } else if (hostChange.hostId === currentPlayerId) {
         alert("The previous host left or disconnected. You are now the host.");
       } else {
         const nextHostName = hostChange.hostName || "A player";
@@ -700,6 +728,7 @@ function handleRoomUpdate(room) {
   }
 
   currentRoom = room;
+  maybeReclaimHost(room);
   const isHost = !!me.isHost;
 
   if (room.status !== "reveal") {

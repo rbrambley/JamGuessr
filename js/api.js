@@ -4,6 +4,10 @@ function nowMs() {
   return Date.now();
 }
 
+const PLAYER_STALE_AFTER_MS = 25000;
+const HOST_STALE_AFTER_MS = 5 * 60 * 1000;
+const HOST_RECLAIM_WINDOW_MS = 10 * 60 * 1000;
+
 function withRoomActivity(patch = {}) {
   return {
     ...patch,
@@ -281,7 +285,7 @@ async function leaveRoom(roomId, playerId) {
   });
 }
 
-async function ensureActiveHost(roomId, staleAfterMs = 25000) {
+async function ensureActiveHost(roomId, staleAfterMs = PLAYER_STALE_AFTER_MS, hostStaleAfterMs = HOST_STALE_AFTER_MS) {
   const roomRef = db.collection("rooms").doc(roomId);
   const playersQuery = roomRef.collection("players").orderBy("joinedAt", "asc");
 
@@ -293,7 +297,7 @@ async function ensureActiveHost(roomId, staleAfterMs = 25000) {
   const players = playersSnap.docs;
   const currentHostDoc = players.find(doc => !!doc.data()?.isHost);
   const currentHostLastSeen = currentHostDoc?.data()?.lastSeen || 0;
-  const hostMissingOrStale = !currentHostDoc || (now - currentHostLastSeen) > staleAfterMs;
+  const hostMissingOrStale = !currentHostDoc || (now - currentHostLastSeen) > hostStaleAfterMs;
 
   if (!hostMissingOrStale) return { changed: false };
 
@@ -342,6 +346,70 @@ async function ensureActiveHost(roomId, staleAfterMs = 25000) {
       changed: true,
       hostId: replacementId,
       hostName: replacementData?.name || "Player"
+    };
+  });
+}
+
+async function reclaimHostIfEligible(roomId, playerId, reclaimWindowMs = HOST_RECLAIM_WINDOW_MS, staleAfterMs = PLAYER_STALE_AFTER_MS) {
+  const roomRef = db.collection("rooms").doc(roomId);
+  const roomDoc = await roomRef.get();
+  if (!roomDoc.exists) return { changed: false };
+
+  const roomData = roomDoc.data() || {};
+  const hostChange = roomData.lastHostChange || null;
+  const now = Date.now();
+
+  if (!hostChange?.changedAt) return { changed: false };
+  if (hostChange.previousHostId !== playerId) return { changed: false };
+  if (!["host_disconnected", "host_missing"].includes(hostChange.reason)) return { changed: false };
+  if ((now - hostChange.changedAt) > reclaimWindowMs) return { changed: false };
+
+  const playersQuery = roomRef.collection("players").orderBy("joinedAt", "asc");
+  const playersSnap = await playersQuery.get();
+  if (playersSnap.empty) return { changed: false };
+
+  const players = playersSnap.docs;
+  const reclaimingDoc = players.find(doc => doc.id === playerId);
+  const currentHostDoc = players.find(doc => !!doc.data()?.isHost);
+  if (!reclaimingDoc) return { changed: false };
+  if (currentHostDoc?.id === playerId) return { changed: false };
+
+  const reclaimingData = reclaimingDoc.data() || {};
+  const reclaimingLastSeen = reclaimingData.lastSeen || 0;
+  if ((now - reclaimingLastSeen) > staleAfterMs) return { changed: false };
+
+  return db.runTransaction(async tx => {
+    const roomSnap = await tx.get(roomRef);
+    if (!roomSnap.exists) return { changed: false };
+
+    const playerDocs = await Promise.all(players.map(p => tx.get(p.ref)));
+    const freshReclaimingDoc = playerDocs.find(doc => doc.id === playerId);
+    if (!freshReclaimingDoc.exists) return { changed: false };
+
+    playerDocs.forEach(doc => {
+      const data = doc.data() || {};
+      if (doc.id === playerId) {
+        if (!data.isHost) tx.update(doc.ref, { isHost: true });
+      } else if (data.isHost) {
+        tx.update(doc.ref, { isHost: false });
+      }
+    });
+
+    tx.update(roomRef, {
+      lastActivityAt: now,
+      lastHostChange: {
+        previousHostId: currentHostDoc?.id || null,
+        hostId: playerId,
+        hostName: freshReclaimingDoc.data()?.name || "Player",
+        changedAt: now,
+        reason: "host_reclaimed"
+      }
+    });
+
+    return {
+      changed: true,
+      hostId: playerId,
+      hostName: freshReclaimingDoc.data()?.name || "Player"
     };
   });
 }
