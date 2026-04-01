@@ -8,7 +8,7 @@
     "bots:join": "node scripts/browser-bots.cjs"
   },
   "devDependencies": {
-    "playwright": "^1.52.0"
+    "playwright": "^1.59.0"
   },
   "engines": {
     "node": ">=18"
