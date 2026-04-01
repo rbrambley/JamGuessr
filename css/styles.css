@@ -951,9 +951,10 @@ li { margin: 8px 0; line-height: 1.5; }
   position: absolute;
   inset: -14%;
   pointer-events: none;
-  background: radial-gradient(circle, rgba(56, 189, 248, 0.34), rgba(56, 189, 248, 0) 60%);
+  background: radial-gradient(circle, rgba(255, 255, 255, 0.46), rgba(56, 189, 248, 0.22) 34%, rgba(56, 189, 248, 0) 64%);
   opacity: 0;
-  animation: revealScoreFlash 2s ease-out infinite;
+  mix-blend-mode: screen;
+  animation: revealScoreFlash 1.6s ease-out infinite;
 }
 
 .reveal-calculating-title {
@@ -1017,9 +1018,11 @@ li { margin: 8px 0; line-height: 1.5; }
 }
 
 @keyframes revealScoreFlash {
-  0%, 100% { opacity: 0; transform: scale(0.86); }
-  18% { opacity: 0.38; transform: scale(1.04); }
-  36% { opacity: 0.05; transform: scale(1.1); }
+  0%, 100% { opacity: 0; transform: scale(0.84); }
+  8% { opacity: 0.82; transform: scale(1.02); }
+  18% { opacity: 0.22; transform: scale(1.08); }
+  52% { opacity: 0.54; transform: scale(0.98); }
+  64% { opacity: 0.12; transform: scale(1.12); }
 }
 
 .final-processing-shell {
