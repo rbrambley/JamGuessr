@@ -138,6 +138,7 @@ let isInitialRoomRender = true;
 let hostPlaybackSyncTimer = null;
 let hostPlaybackSyncInFlight = false;
 let suppressHostPlaybackBroadcastUntil = 0;
+let audioUnlocked = false;
 let allSubmissionsUnsub = null;
 
 // -- Room listeners ------------------------------------------------------------
@@ -305,6 +306,8 @@ function clearPlaybackTimer() {
 
 function stopYouTubePlayback() {
   clearPlaybackTimer();
+  const unlockBtn = document.getElementById("audio-unlock-btn");
+  if (unlockBtn) unlockBtn.style.display = "none";
   if (!ytPlayer || !ytPlayerReady) return;
 
   try {
@@ -573,6 +576,7 @@ async function applyRoomPlayback(room) {
   // If we hard-stopped on reveal/end and are resuming the same song, load it
   // directly at the synced position for a smoother return to playing.
   if (resumingHardStoppedSameVideo) {
+    if (!isCurrentPlayerHost() && !audioUnlocked) player.mute();
     player.loadVideoById({
       videoId: playback.videoId,
       startSeconds: elapsedSec
@@ -581,6 +585,7 @@ async function applyRoomPlayback(room) {
   }
 
   if (!sameVideo && !resumingHardStoppedSameVideo) {
+    if (!isCurrentPlayerHost() && !audioUnlocked) player.mute();
     player.loadVideoById({
       videoId: playback.videoId,
       startSeconds: elapsedSec
@@ -601,10 +606,27 @@ async function applyRoomPlayback(room) {
       if (statusEl && status === "playing") statusEl.textContent = "Playing";
       hardStoppedVideoId = null;
       hardStoppedAtSec = 0;
+      if (!isCurrentPlayerHost()) showAudioUnlockButton(player);
     } catch (e) {
       if (statusEl) statusEl.textContent = "Playback blocked. Click player to start audio.";
     }
   }, delayMs);
+}
+
+function showAudioUnlockButton(player) {
+  if (audioUnlocked) return;
+  const btn = document.getElementById("audio-unlock-btn");
+  if (!btn) return;
+  btn.style.display = "block";
+  btn.onclick = () => {
+    audioUnlocked = true;
+    btn.style.display = "none";
+    try {
+      player.unMute();
+      const state = player.getPlayerState();
+      if (state !== YT.PlayerState.PLAYING) player.playVideo();
+    } catch (e) { /* ignore */ }
+  };
 }
 
 async function syncSongForEveryone(room, songIndex, startDelayMs = 1200) {
@@ -1527,7 +1549,10 @@ async function maybeFinalizeRoundScoring(room, isHost) {
 
   scoreFinalizeInFlight = true;
   try {
-    await Promise.all(roundSongs.map(song => awardScoresForSong(song)));
+    await Promise.all([
+      Promise.all(roundSongs.map(song => awardScoresForSong(song))),
+      new Promise(resolve => setTimeout(resolve, 1800))
+    ]);
     revealScoresAppliedRound = room.currentRound;
     await db.collection("rooms").doc(roomId).update({
       status: "reveal",
