@@ -1665,9 +1665,7 @@ function renderScoreProcessingView(room, isHost) {
   const resultsDiv = document.getElementById("round-results");
   if (!resultsDiv) return;
 
-  const message = isHost
-    ? "Calibrating the chaos... your leaderboard drop is almost ready."
-    : "Calibrating the chaos... finalizing who guessed like a legend.";
+  const message = "Processing guesses and updating scores.";
 
   resultsDiv.innerHTML = `
     <div class="reveal-calculating">
