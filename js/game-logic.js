@@ -515,10 +515,14 @@ function updateHostPlaybackSyncLoop(room, isHost) {
 async function guardClientPlaybackSync(room) {
   if (!room || isCurrentPlayerHost()) return;
   if (room.status !== "playing" || room.allSongsPlayed) return;
-  if (!ytPlayer || !ytPlayerReady) return;
 
   const playback = room.playback;
   if (!playback || playback.round !== room.currentRound || playback.songIndex !== room.currentSongIndex) return;
+
+  if (!ytPlayer || !ytPlayerReady) {
+    await applyRoomPlayback(room);
+    return;
+  }
 
   try {
     const playerState = ytPlayer.getPlayerState();
@@ -553,7 +557,7 @@ function updateClientPlaybackGuardLoop(room, isHost) {
 
   clientPlaybackGuardTimer = setInterval(() => {
     guardClientPlaybackSync(currentRoom);
-  }, 1500);
+  }, 1000);
 }
 
 function handleHostPlaybackStateChange(ytState) {
@@ -652,6 +656,8 @@ async function applyRoomPlayback(room) {
   // after is unreliable (the cue is async).  For same-video resumes/seeks —
   // which includes ad-end recovery — skip straight to seekTo + play/pause.
   const sameVideo = lastLoadedVideoIdForPlayback === playback.videoId;
+  const activeVideoId = player.getVideoData?.()?.video_id || "";
+  const forceLoadMissingVideo = sameVideo && activeVideoId !== playback.videoId;
   const isDirectRevealToPlaying = lastRoomStatus === "reveal" && room.status === "playing";
   const resumingHardStoppedSameVideo =
     isDirectRevealToPlaying && hardStoppedVideoId === playback.videoId;
@@ -667,7 +673,7 @@ async function applyRoomPlayback(room) {
     lastLoadedVideoIdForPlayback = playback.videoId;
   }
 
-  if (!sameVideo && !resumingHardStoppedSameVideo) {
+  if ((!sameVideo || forceLoadMissingVideo) && !resumingHardStoppedSameVideo) {
     if (!isCurrentPlayerHost() && !audioUnlocked) player.mute();
     player.loadVideoById({
       videoId: playback.videoId,
