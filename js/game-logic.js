@@ -148,6 +148,8 @@ let hostPlaybackSyncTimer = null;
 let clientPlaybackGuardTimer = null;
 let hostPlaybackSyncInFlight = false;
 let suppressHostPlaybackBroadcastUntil = 0;
+let playbackReinforceTimer = null;
+let lastPlaybackReinforceKey = "";
 let audioUnlocked = false;
 let allSubmissionsUnsub = null;
 let lastAttemptedHostReclaimAt = 0;
@@ -714,6 +716,7 @@ async function syncSongForEveryone(room, songIndex, startDelayMs = 1200) {
   const roundSongs = getSongsForRound(room.currentRound);
   const song = roundSongs[songIndex];
   if (!song?.youtubeVideoId) return;
+  const startAtMs = Date.now() + startDelayMs;
 
   // Load and play on the host's player directly — the host skips applyRoomPlayback
   // so their player must be started here as the source of truth.
@@ -736,9 +739,36 @@ async function syncSongForEveryone(room, songIndex, startDelayMs = 1200) {
     round: room.currentRound,
     songIndex,
     status: "playing",
-    startAtMs: Date.now() + startDelayMs,
+    startAtMs,
     version: Date.now()
   });
+
+  // One-shot reinforcement broadcast: helps slower clients that were still
+  // mounting player UI when the first playback version arrived.
+  const reinforceKey = `${room.currentRound}:${songIndex}:${song.youtubeVideoId}:${startAtMs}`;
+  if (lastPlaybackReinforceKey !== reinforceKey) {
+    lastPlaybackReinforceKey = reinforceKey;
+    if (playbackReinforceTimer) {
+      clearTimeout(playbackReinforceTimer);
+      playbackReinforceTimer = null;
+    }
+    playbackReinforceTimer = setTimeout(async () => {
+      playbackReinforceTimer = null;
+      try {
+        if (!currentRoom || currentRoom.status !== "playing" || currentRoom.currentRound !== room.currentRound) return;
+        await syncRoomPlayback(roomId, {
+          videoId: song.youtubeVideoId,
+          round: room.currentRound,
+          songIndex,
+          status: "playing",
+          startAtMs,
+          version: Date.now()
+        });
+      } catch (e) {
+        console.error("Playback reinforcement failed", e);
+      }
+    }, startDelayMs + 1800);
+  }
 }
 
 async function advanceSongForEveryone(room, nextIndex) {
