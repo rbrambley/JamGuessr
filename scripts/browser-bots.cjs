@@ -15,6 +15,8 @@ const DEFAULT_BASE_URL = "https://rbrambley.github.io/JamGuessr";
 const DEFAULT_BOT_COUNT = 3;
 const MIN_ACTION_DELAY_MS = 1200;
 const MAX_ACTION_DELAY_MS = 2600;
+const PLAY_VIEW_SETTLE_DELAY_MS = 1800;
+const PLAYBACK_POKE_COOLDOWN_MS = 2200;
 const BOT_BROWSER_ARGS = [
   "--autoplay-policy=no-user-gesture-required",
   "--disable-background-timer-throttling",
@@ -168,6 +170,9 @@ class BotPlayer {
     this.page = null;
     this.running = true;
     this.lastPickAt = 0;
+    this.lastViewId = "";
+    this.enteredPlayingAt = 0;
+    this.lastPlaybackPokeAt = 0;
     this.guessCounts = new Map();
     this.learnedPickerByArtist = new Map();
     this.learnedPickerByTitle = new Map();
@@ -227,6 +232,13 @@ class BotPlayer {
     }
 
     const viewId = await getVisibleViewId(this.page);
+    if (viewId !== this.lastViewId) {
+      if (viewId === "view-playing") {
+        this.enteredPlayingAt = Date.now();
+        this.lastPlaybackPokeAt = 0;
+      }
+      this.lastViewId = viewId;
+    }
 
     if (viewId === "view-picking") {
       await this.handlePicking();
@@ -235,6 +247,8 @@ class BotPlayer {
 
     if (viewId === "view-playing") {
       await this.handlePlaybackUi();
+      const settledInPlayView = Date.now() - this.enteredPlayingAt >= PLAY_VIEW_SETTLE_DELAY_MS;
+      if (!settledInPlayView) return;
       await this.handleGuessing();
       return;
     }
@@ -251,10 +265,34 @@ class BotPlayer {
   }
 
   async handlePlaybackUi() {
+    const now = Date.now();
+
     const unlockBtn = this.page.locator("#audio-unlock-btn");
     const unlockVisible = await unlockBtn.isVisible().catch(() => false);
     if (unlockVisible) {
       await unlockBtn.click().catch(() => {});
+      this.lastPlaybackPokeAt = now;
+    } else if (now - this.lastPlaybackPokeAt >= PLAYBACK_POKE_COOLDOWN_MS) {
+      this.lastPlaybackPokeAt = now;
+      // Some clients never render the unlock button. Poke the player shell/iframe
+      // to satisfy autoplay gesture requirements and kick playback.
+      await this.page.locator(".youtube-player-shell").click({
+        timeout: 800,
+        force: true,
+        position: { x: 36, y: 36 }
+      }).catch(() => {});
+
+      await this.page.locator("#youtube-player").click({
+        timeout: 800,
+        force: true,
+        position: { x: 64, y: 64 }
+      }).catch(() => {});
+
+      await this.page.locator("#youtube-player iframe").first().click({
+        timeout: 800,
+        force: true,
+        position: { x: 72, y: 72 }
+      }).catch(() => {});
     }
 
     const frames = this.page.frames();
