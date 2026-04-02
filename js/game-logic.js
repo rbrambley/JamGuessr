@@ -636,6 +636,17 @@ function isCurrentPlayerScreen() {
   return isScreenRole(me);
 }
 
+function hasScreenPlaybackModeEnabled() {
+  return (players || []).some(player => isScreenRole(player));
+}
+
+function shouldRenderPlaybackForCurrentClient() {
+  if (!hasScreenPlaybackModeEnabled()) {
+    return true;
+  }
+  return isCurrentPlayerScreen();
+}
+
 function mapYouTubeStateToPlaybackStatus(ytState) {
   if (!window.YT) return "paused";
   if (ytState === YT.PlayerState.PLAYING || ytState === YT.PlayerState.BUFFERING) return "playing";
@@ -708,7 +719,11 @@ async function broadcastHostPlaybackState(force = false) {
 }
 
 function updateHostPlaybackSyncLoop(room, isHost) {
-  const shouldRun = !!isHost && room?.status === "playing" && !room?.allSongsPlayed;
+  const shouldRun =
+    !!isHost &&
+    shouldRenderPlaybackForCurrentClient() &&
+    room?.status === "playing" &&
+    !room?.allSongsPlayed;
   if (!shouldRun) {
     if (hostPlaybackSyncTimer) {
       clearInterval(hostPlaybackSyncTimer);
@@ -730,6 +745,7 @@ function updateHostPlaybackSyncLoop(room, isHost) {
 
 async function guardClientPlaybackSync(room) {
   if (!room || isCurrentPlayerHost()) return;
+  if (!shouldRenderPlaybackForCurrentClient()) return;
   if (room.status !== "playing" || room.allSongsPlayed) return;
 
   const playback = room.playback;
@@ -782,7 +798,11 @@ async function guardClientPlaybackSync(room) {
 }
 
 function updateClientPlaybackGuardLoop(room, isHost) {
-  const shouldRun = !isHost && room?.status === "playing" && !room?.allSongsPlayed;
+  const shouldRun =
+    !isHost &&
+    shouldRenderPlaybackForCurrentClient() &&
+    room?.status === "playing" &&
+    !room?.allSongsPlayed;
   if (!shouldRun) {
     if (clientPlaybackGuardTimer) {
       clearInterval(clientPlaybackGuardTimer);
@@ -1726,9 +1746,23 @@ function hasStartedPlaybackForCurrentSong(room) {
 
 function renderPlayingView(room, isHost) {
   const isScreenMode = isCurrentPlayerScreen();
+  const shouldRenderPlayback = shouldRenderPlaybackForCurrentClient();
   const guessHint = document.querySelector(".guess-hint");
   if (guessHint) {
     guessHint.style.display = isScreenMode ? "none" : "block";
+  }
+
+  const playerShell = document.querySelector(".youtube-player-shell");
+  if (playerShell) {
+    playerShell.style.display = shouldRenderPlayback ? "block" : "none";
+  }
+
+  if (!shouldRenderPlayback) {
+    stopYouTubePlayback();
+    const statusEl = document.getElementById("youtube-player-status");
+    if (statusEl) {
+      statusEl.textContent = "Playback is on the room screen device. Use this device for guessing only.";
+    }
   }
 
   renderNowPlayingBanner(room);
@@ -1736,7 +1770,7 @@ function renderPlayingView(room, isHost) {
   setYouTubeInteractionLock(isHost);
   // Host controls their own player directly — applying their own Firestore
   // broadcast would re-cue the video every 3s and interrupt playback.
-  if (!isHost) {
+  if (!isHost && shouldRenderPlayback) {
     applyRoomPlayback(room);
   }
 }
@@ -1788,7 +1822,9 @@ function renderNowPlayingBanner(room) {
   const statusEl = document.getElementById("youtube-player-status");
   if (statusEl) {
     statusEl.textContent = currentSong.youtubeVideoId
-      ? "Ready to play on all clients."
+      ? (hasScreenPlaybackModeEnabled()
+        ? "Ready to play on the screen device."
+        : "Ready to play on all clients.")
       : "No YouTube video selected for this song.";
   }
 }
