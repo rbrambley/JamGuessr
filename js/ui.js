@@ -1,8 +1,17 @@
 // ── Lobby UI ───────────────────────────────────────────────────────────────────
 
+function isScreenRole(player) {
+  return (player?.role || "player") === "screen";
+}
+
+function getParticipatingPlayers(playersList) {
+  return (playersList || []).filter(player => !isScreenRole(player));
+}
+
 function renderLobby(players, code, isHost) {
   const minimumPlayers = 2;
-  const playerCount = players.length;
+  const participantCount = getParticipatingPlayers(players).length;
+  const screenCount = Math.max(0, players.length - participantCount);
   const roomCodeEl = document.getElementById("room-code-display");
   if (roomCodeEl) {
     roomCodeEl.innerHTML = `
@@ -62,13 +71,14 @@ function renderLobby(players, code, isHost) {
 
   const waitingText = document.getElementById("lobby-waiting-text");
   if (waitingText) {
-    const needed = Math.max(0, minimumPlayers - playerCount);
+    const needed = Math.max(0, minimumPlayers - participantCount);
+    const screenSuffix = screenCount > 0 ? ` (+${screenCount} screen${screenCount === 1 ? "" : "s"})` : "";
     if (needed > 0) {
-      waitingText.textContent = `${playerCount}/${minimumPlayers} connected - need ${needed} more player${needed === 1 ? "" : "s"} to begin`;
+      waitingText.textContent = `${participantCount}/${minimumPlayers} players ready${screenSuffix} - need ${needed} more player${needed === 1 ? "" : "s"} to begin`;
     } else if (isHost) {
-      waitingText.textContent = `${playerCount} connected - everyone is ready. Start when you are.`;
+      waitingText.textContent = `${participantCount} players ready${screenSuffix} - everyone is ready. Start when you are.`;
     } else {
-      waitingText.textContent = `${playerCount} connected - waiting for host to start.`;
+      waitingText.textContent = `${participantCount} players ready${screenSuffix} - waiting for host to start.`;
     }
   }
 
@@ -99,8 +109,16 @@ function renderLobby(players, code, isHost) {
     stateLine.className = "lobby-state-line";
 
     const rolePill = document.createElement("span");
-    rolePill.className = "role-pill " + (p.isHost ? "role-pill-host" : "role-pill-player");
-    rolePill.textContent = p.isHost ? "Host" : "Player";
+    if (p.isHost) {
+      rolePill.className = "role-pill role-pill-host";
+      rolePill.textContent = "Host";
+    } else if (isScreenRole(p)) {
+      rolePill.className = "role-pill role-pill-screen";
+      rolePill.textContent = "Screen";
+    } else {
+      rolePill.className = "role-pill role-pill-player";
+      rolePill.textContent = "Player";
+    }
     stateLine.appendChild(rolePill);
 
     const state = document.createElement("span");
@@ -113,6 +131,22 @@ function renderLobby(players, code, isHost) {
     li.appendChild(main);
 
     if (isHost && p.id !== currentPlayerId && !p.isHost) {
+      const roleBtn = document.createElement("button");
+      roleBtn.type = "button";
+      roleBtn.className = "secondary-btn role-toggle-link";
+      const currentlyScreen = isScreenRole(p);
+      roleBtn.textContent = currentlyScreen ? "Set as Player" : "Set as Screen";
+      roleBtn.onclick = async () => {
+        roleBtn.disabled = true;
+        try {
+          await setPlayerRole(roomId, currentPlayerId, p.id, currentlyScreen ? "player" : "screen");
+        } catch (e) {
+          alert("Could not change role: " + (e?.message || "unknown error"));
+          roleBtn.disabled = false;
+        }
+      };
+      li.appendChild(roleBtn);
+
       const kickLink = document.createElement("button");
       kickLink.type = "button";
       kickLink.className = "kick-player-link";

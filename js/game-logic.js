@@ -619,6 +619,23 @@ function isCurrentPlayerHost() {
   return !!me?.isHost;
 }
 
+function isScreenRole(player) {
+  return (player?.role || "player") === "screen";
+}
+
+function getParticipatingPlayers() {
+  return (players || []).filter(player => !isScreenRole(player));
+}
+
+function getGuessablePlayers() {
+  return getParticipatingPlayers();
+}
+
+function isCurrentPlayerScreen() {
+  const me = players.find(p => p.id === currentPlayerId);
+  return isScreenRole(me);
+}
+
 function mapYouTubeStateToPlaybackStatus(ytState) {
   if (!window.YT) return "paused";
   if (ytState === YT.PlayerState.PLAYING || ytState === YT.PlayerState.BUFFERING) return "playing";
@@ -1189,7 +1206,9 @@ function renderMetaPanel(room) {
   const me = players.find(p => p.id === currentPlayerId);
   const isHost = !!me?.isHost;
   const minimumPlayers = 2;
-  const playerCount = players.length;
+  const participatingPlayers = getParticipatingPlayers();
+  const playerCount = participatingPlayers.length;
+  const screenCount = Math.max(0, players.length - playerCount);
   const playerNameEl = document.getElementById("player-name-display");
   if (playerNameEl) {
     playerNameEl.textContent = "";
@@ -1202,7 +1221,7 @@ function renderMetaPanel(room) {
       roundEl.style.color = "#f87171";
     } else if (room.status === "playing") {
       const roundSongs = getSongsForRound(room.currentRound);
-      const songCount = Math.max(roundSongs.length, players.length);
+      const songCount = Math.max(roundSongs.length, playerCount);
       const songIdx = room.allSongsPlayed ? songCount : Math.min(room.currentSongIndex + 1, songCount);
       roundEl.textContent = `Round ${room.currentRound} of ${room.maxRounds} • Song ${songIdx} of ${songCount}`;
       roundEl.style.color = "";
@@ -1223,12 +1242,13 @@ function renderMetaPanel(room) {
     if (room.status === "lobby") {
       pointsEl.classList.add("meta-status-compact");
       const needed = Math.max(0, minimumPlayers - playerCount);
+      const screenSuffix = screenCount > 0 ? ` (+${screenCount} screen${screenCount === 1 ? "" : "s"})` : "";
       if (needed > 0) {
-        pointsEl.textContent = `${playerCount}/${minimumPlayers} connected • ${needed} more needed`;
+        pointsEl.textContent = `${playerCount}/${minimumPlayers} players ready${screenSuffix} • ${needed} more needed`;
       } else if (isHost) {
-        pointsEl.textContent = `${playerCount} connected • ready to start`;
+        pointsEl.textContent = `${playerCount} players ready${screenSuffix} • ready to start`;
       } else {
-        pointsEl.textContent = `${playerCount} connected • waiting on host`;
+        pointsEl.textContent = `${playerCount} players ready${screenSuffix} • waiting on host`;
       }
     } else {
       pointsEl.classList.remove("meta-status-compact");
@@ -1247,13 +1267,13 @@ function renderMetaPanel(room) {
 
   buttonRow.innerHTML = "";
   const isFinished = room.status === "finished";
-  const winner = isFinished ? [...players].sort((a, b) => b.score - a.score)[0] : null;
+  const winner = isFinished ? [...participatingPlayers].sort((a, b) => b.score - a.score)[0] : null;
 
   // Compute per-player round deltas to highlight on chips during reveal
   const roundDeltas = new Map();
   if (room.status === "reveal") {
     const revealRoundSongs = getSongsForRound(room.currentRound);
-    players.forEach(p => roundDeltas.set(p.id, 0));
+    participatingPlayers.forEach(p => roundDeltas.set(p.id, 0));
     revealRoundSongs.forEach(song => {
       if (roundDeltas.has(song.pickedBy)) {
         roundDeltas.set(song.pickedBy, (roundDeltas.get(song.pickedBy) || 0) + POINTS_FOR_PICKER_REVEAL);
@@ -1266,7 +1286,7 @@ function renderMetaPanel(room) {
     });
   }
 
-  players.forEach(p => {
+  participatingPlayers.forEach(p => {
     const btn = document.createElement("button");
     btn.type = "button";
     btn.className = "secondary-btn player-chip";
@@ -1362,6 +1382,25 @@ function renderMetaPanel(room) {
 function renderSongInputs(currentRound, maxRounds) {
   const container = document.getElementById("song-inputs");
   if (!container) return;
+
+  const me = players.find(p => p.id === currentPlayerId);
+  if (isScreenRole(me)) {
+    container.innerHTML = `
+      <div class="playlist-song-note">
+        Screen mode is active on this device. Song picking is disabled here, but playback stays synced.
+      </div>
+    `;
+
+    const submitBtn = document.getElementById("submit-songs-btn");
+    if (submitBtn) submitBtn.style.display = "none";
+
+    const waitingMsg = document.getElementById("waiting-msg");
+    if (waitingMsg) {
+      waitingMsg.style.display = "none";
+      waitingMsg.textContent = "";
+    }
+    return;
+  }
 
   if (lastPickingRound !== currentRound) {
     pickingSearchResults = [];
@@ -1579,7 +1618,6 @@ function renderSongInputs(currentRound, maxRounds) {
   const waitingMsg = document.getElementById("waiting-msg");
   waitingMsg.style.display = "none";
 
-  const me = players.find(p => p.id === currentPlayerId);
   if (me?.submitted) {
     const isHost = !!me?.isHost;
     if (isHost) watchForAllSubmissions();
@@ -1634,7 +1672,8 @@ function watchForAllSubmissions() {
   allSubmissionsUnsub = db.collection("rooms").doc(roomId).collection("players")
     .onSnapshot(snap => {
       const all = snap.docs.map(d => d.data());
-      if (all.length > 0 && all.every(p => p.submitted)) {
+      const participants = all.filter(player => (player?.role || "player") !== "screen");
+      if (participants.length > 0 && participants.every(player => !!player.submitted)) {
         if (allSubmissionsUnsub) {
           allSubmissionsUnsub();
           allSubmissionsUnsub = null;
@@ -1686,8 +1725,14 @@ function hasStartedPlaybackForCurrentSong(room) {
 }
 
 function renderPlayingView(room, isHost) {
+  const isScreenMode = isCurrentPlayerScreen();
+  const guessHint = document.querySelector(".guess-hint");
+  if (guessHint) {
+    guessHint.style.display = isScreenMode ? "none" : "block";
+  }
+
   renderNowPlayingBanner(room);
-  renderMasterPlaylist(room);
+  renderMasterPlaylist(room, isScreenMode);
   setYouTubeInteractionLock(isHost);
   // Host controls their own player directly — applying their own Firestore
   // broadcast would re-cue the video every 3s and interrupt playback.
@@ -1748,10 +1793,12 @@ function renderNowPlayingBanner(room) {
   }
 }
 
-function renderMasterPlaylist(room) {
+function renderMasterPlaylist(room, isScreenMode = false) {
   const container = document.getElementById("playlist-songs");
   if (!container) return;
   container.innerHTML = "";
+
+  const guessablePlayers = getGuessablePlayers();
 
   const currentSongStarted = hasStartedPlaybackForCurrentSong(room);
 
@@ -1819,7 +1866,7 @@ function renderMasterPlaylist(room) {
       card.appendChild(buildSongDisplayCard(song));
 
       const isCurrentRoundSong = song.round === room.currentRound;
-      const canGuessNow = room.status === "playing" && isCurrentRoundSong;
+      const canGuessNow = !isScreenMode && room.status === "playing" && isCurrentRoundSong;
       const isPicker = song.pickedBy === currentPlayerId;
 
       if (canGuessNow && !isPicker) {
@@ -1827,7 +1874,7 @@ function renderMasterPlaylist(room) {
         const row = document.createElement("div");
         row.className = "playlist-song-guesses";
 
-        players.forEach(p => {
+        guessablePlayers.forEach(p => {
           const btn = document.createElement("button");
           btn.type = "button";
           btn.className = "guess-btn" + (myGuess?.guessedPlayerId === p.id ? " guess-btn-selected" : "");
@@ -1857,8 +1904,14 @@ function renderMasterPlaylist(room) {
         const note = document.createElement("div");
         note.className = "playlist-song-note";
 
-        if (isPicker && canGuessNow) {
-          note.textContent = "You picked this song.";
+        if (room.status === "playing" && isCurrentRoundSong) {
+          if (isScreenMode) {
+            note.textContent = "Screen mode display only. Players guess on their phones.";
+          } else if (isPicker) {
+            note.textContent = "You picked this song.";
+          } else {
+            note.textContent = "Guesses are still open for this song.";
+          }
         } else {
           note.textContent = `Picked by ${picker ? picker.name : "?"}`;
         }
@@ -1874,11 +1927,12 @@ function renderMasterPlaylist(room) {
 }
 
 function getRoundGuessProgress(roundSongs) {
+  const guessablePlayers = getGuessablePlayers();
   let totalNeeded = 0;
   let totalDone = 0;
 
   roundSongs.forEach(song => {
-    const nonPickers = players.filter(p => p.id !== song.pickedBy);
+    const nonPickers = guessablePlayers.filter(p => p.id !== song.pickedBy);
     totalNeeded += nonPickers.length;
 
     nonPickers.forEach(player => {
@@ -2131,7 +2185,8 @@ async function renderRevealView(room, isHost) {
   }
 
   // Compute per-player round deltas from local guesses for display
-  const roundDeltas = new Map(players.map(p => [p.id, 0]));
+  const guessablePlayers = getGuessablePlayers();
+  const roundDeltas = new Map(guessablePlayers.map(p => [p.id, 0]));
   roundSongs.forEach(song => {
     if (roundDeltas.has(song.pickedBy)) {
       roundDeltas.set(song.pickedBy, (roundDeltas.get(song.pickedBy) || 0) + POINTS_FOR_PICKER_REVEAL);
@@ -2176,7 +2231,7 @@ async function renderRevealView(room, isHost) {
     const guessResults = document.createElement("div");
     guessResults.className = "reveal-guess-results";
 
-    players.filter(p => p.id !== song.pickedBy).forEach(p => {
+    guessablePlayers.filter(p => p.id !== song.pickedBy).forEach(p => {
       const g = songGuesses.find(guess => guess.guessedBy === p.id);
       const isCorrect = g?.guessedPlayerId === song.pickedBy;
 
@@ -2219,7 +2274,7 @@ async function renderRevealView(room, isHost) {
   const summaryGrid = document.createElement("div");
   summaryGrid.className = "reveal-summary-grid";
 
-  [...players]
+  [...guessablePlayers]
     .sort((a, b) => (b.score || 0) - (a.score || 0))
     .forEach(p => {
       const delta = roundDeltas.get(p.id) || 0;
@@ -2338,6 +2393,7 @@ async function renderFinalResults(players) {
   lastRenderedFinalSignature = finalSignature;
 
   const isHost = players.find(p => p.id === currentPlayerId)?.isHost;
+  const participatingPlayers = (players || []).filter(player => !isScreenRole(player));
 
   // Ranked podium
   const podiumEl = document.getElementById("final-podium");
@@ -2351,7 +2407,7 @@ async function renderFinalResults(players) {
     const grid = document.createElement("div");
     grid.className = "reveal-podium";
     const medals = ["🥇", "🥈", "🥉"];
-    [...players].sort((a, b) => (b.score || 0) - (a.score || 0)).forEach((p, i) => {
+    [...participatingPlayers].sort((a, b) => (b.score || 0) - (a.score || 0)).forEach((p, i) => {
       const row = document.createElement("div");
       row.className = "podium-row" + (i === 0 ? " podium-winner" : "");
       row.style.setProperty("--reveal-i", i);

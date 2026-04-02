@@ -345,6 +345,12 @@ li { margin: 8px 0; line-height: 1.5; }
   border: 1px solid rgba(130, 149, 193, 0.24);
 }
 
+.role-pill-screen {
+  color: #b6f7ff;
+  background: rgba(8, 145, 178, 0.2);
+  border: 1px solid rgba(34, 211, 238, 0.38);
+}
+
 .lobby-state {
   color: #95f4b8;
   font-size: 0.82rem;
@@ -354,6 +360,14 @@ li { margin: 8px 0; line-height: 1.5; }
   background: rgba(185, 28, 28, 0.2);
   border: 1px solid rgba(248, 113, 113, 0.4);
   color: #fecaca;
+  margin-top: 0;
+  min-height: 32px;
+  padding: 6px 10px;
+  font-size: 0.75rem;
+  border-radius: 9px;
+}
+
+.role-toggle-link {
   margin-top: 0;
   min-height: 32px;
   padding: 6px 10px;

@@ -33,6 +33,7 @@ async function createRoom(hostName, maxRounds) {
   const playerRef = await db.collection("rooms").doc(roomRef.id)
     .collection("players").add({
       name: hostName,
+      role: "player",
       score: 0,
       isHost: true,
       submitted: false,
@@ -60,6 +61,7 @@ async function joinRoom(code, playerName) {
   const playerRef = await db.collection("rooms").doc(roomId)
     .collection("players").add({
       name: playerName,
+      role: "player",
       score: 0,
       isHost: false,
       submitted: false,
@@ -88,6 +90,16 @@ async function submitSongs(roomId, playerId, songs, roundNumber) {
   const playerRef = db.collection("rooms").doc(roomId).collection("players").doc(playerId);
 
   await db.runTransaction(async tx => {
+    const playerDoc = await tx.get(playerRef);
+    if (!playerDoc.exists) {
+      throw new Error("Player not found in room.");
+    }
+
+    const playerData = playerDoc.data() || {};
+    if (playerData.role === "screen") {
+      throw new Error("Screen devices cannot submit songs.");
+    }
+
     const existingSong = await tx.get(songRef);
     if (existingSong.exists) {
       throw new Error("You already submitted a song for this round.");
@@ -112,6 +124,31 @@ async function submitSongs(roomId, playerId, songs, roundNumber) {
 // ── Guessing ─────────────────────────────────────────────────────────────────
 
 async function submitGuess(roomId, playerId, songId, guessedPlayerId) {
+  const roomRef = db.collection("rooms").doc(roomId);
+  const guesserRef = roomRef.collection("players").doc(playerId);
+  const guessedRef = roomRef.collection("players").doc(guessedPlayerId);
+
+  const [guesserDoc, guessedDoc] = await Promise.all([
+    guesserRef.get(),
+    guessedRef.get()
+  ]);
+
+  if (!guesserDoc.exists) {
+    throw new Error("Guessing player not found.");
+  }
+
+  if (!guessedDoc.exists) {
+    throw new Error("Selected player is no longer in the room.");
+  }
+
+  if ((guesserDoc.data() || {}).role === "screen") {
+    throw new Error("Screen devices cannot submit guesses.");
+  }
+
+  if ((guessedDoc.data() || {}).role === "screen") {
+    throw new Error("Screen devices cannot be selected as a guess target.");
+  }
+
   const guessesRef = db.collection("rooms").doc(roomId).collection("guesses");
   const existingSnap = await guessesRef
     .where("songId", "==", songId)
@@ -181,6 +218,46 @@ async function nextRound(roomId, nextRound) {
 
 async function finishGame(roomId) {
   await db.collection("rooms").doc(roomId).update(withRoomActivity({ status: "finalizing" }));
+}
+
+async function setPlayerRole(roomId, actorId, targetPlayerId, role) {
+  const nextRole = role === "screen" ? "screen" : "player";
+  const roomRef = db.collection("rooms").doc(roomId);
+  const actorRef = roomRef.collection("players").doc(actorId);
+  const targetRef = roomRef.collection("players").doc(targetPlayerId);
+
+  await db.runTransaction(async tx => {
+    const [actorDoc, targetDoc] = await Promise.all([
+      tx.get(actorRef),
+      tx.get(targetRef)
+    ]);
+
+    if (!actorDoc.exists) {
+      throw new Error("Host session not found.");
+    }
+
+    if (!targetDoc.exists) {
+      throw new Error("Selected player no longer exists.");
+    }
+
+    const actor = actorDoc.data() || {};
+    const target = targetDoc.data() || {};
+
+    if (!actor.isHost) {
+      throw new Error("Only the host can change player roles.");
+    }
+
+    if (target.isHost) {
+      throw new Error("Host role cannot be changed to screen mode.");
+    }
+
+    tx.update(targetRef, {
+      role: nextRole,
+      submitted: nextRole === "screen" ? true : !!target.submitted
+    });
+
+    tx.update(roomRef, withRoomActivity());
+  });
 }
 
 async function advanceSong(roomId, nextIndex) {
