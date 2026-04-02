@@ -177,6 +177,7 @@ let allSubmissionsUnsub = null;
 let lastAttemptedHostReclaimAt = 0;
 let screenModeEnteredFullscreen = false;
 let screenModeFullscreenAttemptedSongKey = "";
+let lastClientGuardCorrectionAt = 0;
 const CLIENT_DESYNC_RECOVERY_COOLDOWN_MS = 12000;
 const PLAYBACK_TELEMETRY_MAX_EVENTS = 120;
 let playbackTelemetryState = "idle";
@@ -838,6 +839,7 @@ async function guardClientPlaybackSync(room) {
   }
 
   try {
+    const now = Date.now();
     const playerState = ytPlayer.getPlayerState();
     const activeVideoId = ytPlayer.getVideoData?.()?.video_id || "";
 
@@ -847,7 +849,9 @@ async function guardClientPlaybackSync(room) {
       // wrong video is mounted or playback is clearly missing.
       const isPlayingState = window.YT && (playerState === YT.PlayerState.PLAYING || playerState === YT.PlayerState.BUFFERING);
       const sameExpectedVideo = activeVideoId === playback.videoId;
-      if (!sameExpectedVideo || !isPlayingState) {
+      const recentlyCorrected = (now - lastClientGuardCorrectionAt) < 12000;
+      if ((!sameExpectedVideo || !isPlayingState) && !recentlyCorrected) {
+        lastClientGuardCorrectionAt = now;
         await applyRoomPlayback(room);
       }
       return;
@@ -862,7 +866,7 @@ async function guardClientPlaybackSync(room) {
     const isPlayingState = window.YT && (playerState === YT.PlayerState.PLAYING || playerState === YT.PlayerState.BUFFERING);
     const isPausedState = window.YT && playerState === YT.PlayerState.PAUSED;
     const sameExpectedVideo = activeVideoId === playback.videoId;
-    const recentlyAppliedPlayback = (Date.now() - lastPlaybackApplyAttemptAt) < CLIENT_DESYNC_RECOVERY_COOLDOWN_MS;
+    const recentlyAppliedPlayback = (now - lastPlaybackApplyAttemptAt) < CLIENT_DESYNC_RECOVERY_COOLDOWN_MS;
 
     // Ads/transient YouTube states can look like a pause/desync even though the
     // right video is already mounted. Avoid repeatedly reloading the same video
@@ -871,16 +875,27 @@ async function guardClientPlaybackSync(room) {
       return;
     }
 
-    if ((shouldBePlaying && (!isPlayingState || driftSec > 2.5)) || (!shouldBePlaying && !isPausedState)) {
+    const needsStateRecovery = (shouldBePlaying && !isPlayingState) || (!shouldBePlaying && !isPausedState);
+    const needsDriftRecovery = shouldBePlaying && isPlayingState && driftSec > 4.5;
+    const needsHardDriftRecovery = shouldBePlaying && driftSec > 7.0;
+    const correctionCooldownMs = 9000;
+    const recentlyCorrected = (now - lastClientGuardCorrectionAt) < correctionCooldownMs;
+
+    if (needsStateRecovery || needsDriftRecovery || needsHardDriftRecovery) {
+      if (!needsStateRecovery && !needsHardDriftRecovery && recentlyCorrected) {
+        return;
+      }
+
       if (shouldBePlaying) {
         logPlaybackTelemetry("blocked", {
           source: "client-guard",
-          reason: !isPlayingState ? "not-playing" : "drift",
+          reason: !isPlayingState ? "not-playing" : (needsHardDriftRecovery ? "hard-drift" : "drift"),
           driftSec: Number(driftSec.toFixed(2)),
           activeVideoId,
           expectedVideoId: playback.videoId || "none"
         });
       }
+      lastClientGuardCorrectionAt = now;
       await applyRoomPlayback(room);
       if (shouldBePlaying) {
         markPlaybackPlaying({ source: "client-guard-reapply" });
