@@ -174,6 +174,72 @@ let audioUnlocked = false;
 let allSubmissionsUnsub = null;
 let lastAttemptedHostReclaimAt = 0;
 const CLIENT_DESYNC_RECOVERY_COOLDOWN_MS = 12000;
+const PLAYBACK_TELEMETRY_MAX_EVENTS = 120;
+let playbackTelemetryState = "idle";
+let playbackTelemetrySongKey = "";
+
+function getTelemetryPlayerLabel() {
+  const me = players.find(p => p.id === currentPlayerId);
+  return {
+    id: currentPlayerId || "unknown",
+    name: me?.name || "unknown",
+    isHost: !!me?.isHost
+  };
+}
+
+function getTelemetrySongKey(room = currentRoom) {
+  if (!room) return "none";
+  const playback = room.playback || null;
+  const baseRound = playback?.round ?? room.currentRound ?? -1;
+  const baseSongIndex = playback?.songIndex ?? room.currentSongIndex ?? -1;
+  const videoId = playback?.videoId || lastLoadedVideoIdForPlayback || "none";
+  return `${baseRound}:${baseSongIndex}:${videoId}`;
+}
+
+function logPlaybackTelemetry(nextState, details = {}) {
+  const validStates = new Set(["ready", "playing", "blocked", "recovered"]);
+  if (!validStates.has(nextState)) return;
+
+  const songKey = getTelemetrySongKey(currentRoom);
+  const prevState = playbackTelemetryState;
+  const prevSongKey = playbackTelemetrySongKey;
+  const isSameTransition = prevState === nextState && prevSongKey === songKey;
+  if (isSameTransition) return;
+
+  const player = getTelemetryPlayerLabel();
+  const entry = {
+    at: new Date().toISOString(),
+    roomId: roomId || "unknown",
+    roomCode: currentRoom?.code || "unknown",
+    round: currentRoom?.currentRound ?? -1,
+    songIndex: currentRoom?.currentSongIndex ?? -1,
+    songKey,
+    playerId: player.id,
+    playerName: player.name,
+    isHost: player.isHost,
+    from: prevState,
+    to: nextState,
+    ...details
+  };
+
+  const store = (window.__jamPlaybackTelemetry = window.__jamPlaybackTelemetry || []);
+  store.push(entry);
+  if (store.length > PLAYBACK_TELEMETRY_MAX_EVENTS) {
+    store.splice(0, store.length - PLAYBACK_TELEMETRY_MAX_EVENTS);
+  }
+
+  console.info("[PlaybackTelemetry]", entry);
+  playbackTelemetryState = nextState;
+  playbackTelemetrySongKey = songKey;
+}
+
+function markPlaybackPlaying(details = {}) {
+  if (playbackTelemetryState === "blocked") {
+    logPlaybackTelemetry("recovered", details);
+    return;
+  }
+  logPlaybackTelemetry("playing", details);
+}
 
 // -- Room listeners ------------------------------------------------------------
 
@@ -498,9 +564,15 @@ async function ensureYouTubePlayer() {
       events: {
         onReady: () => {
           ytPlayerReady = true;
+          logPlaybackTelemetry("ready", { source: "yt-onReady" });
           resolve();
         },
         onStateChange: evt => {
+          if (window.YT) {
+            if (evt?.data === YT.PlayerState.PLAYING || evt?.data === YT.PlayerState.BUFFERING) {
+              markPlaybackPlaying({ source: "yt-onStateChange", ytState: evt?.data });
+            }
+          }
           if (evt?.data === YT.PlayerState.ENDED) {
             handleHostAutoplayAdvance();
           }
@@ -644,7 +716,19 @@ async function guardClientPlaybackSync(room) {
     }
 
     if ((shouldBePlaying && (!isPlayingState || driftSec > 2.5)) || (!shouldBePlaying && !isPausedState)) {
+      if (shouldBePlaying) {
+        logPlaybackTelemetry("blocked", {
+          source: "client-guard",
+          reason: !isPlayingState ? "not-playing" : "drift",
+          driftSec: Number(driftSec.toFixed(2)),
+          activeVideoId,
+          expectedVideoId: playback.videoId || "none"
+        });
+      }
       await applyRoomPlayback(room);
+      if (shouldBePlaying) {
+        markPlaybackPlaying({ source: "client-guard-reapply" });
+      }
     }
   } catch (e) {
     // Best-effort local correction only.
@@ -812,6 +896,7 @@ async function applyRoomPlayback(room) {
         player.pauseVideo();
       } else {
         player.playVideo();
+        markPlaybackPlaying({ source: "applyRoomPlayback" });
       }
       if (statusEl && status === "playing") statusEl.textContent = "Playing";
       hardStoppedVideoId = null;
@@ -838,12 +923,18 @@ async function applyRoomPlayback(room) {
             player.pauseVideo();
           } else {
             player.playVideo();
+            logPlaybackTelemetry("recovered", { source: "missing-video-recovery" });
           }
         } catch (e) {
           // Best-effort recovery only.
         }
       }, 1400);
     } catch (e) {
+      logPlaybackTelemetry("blocked", {
+        source: "applyRoomPlayback",
+        reason: "playback-command-error",
+        error: e?.message || String(e || "unknown")
+      });
       if (statusEl) statusEl.textContent = "Playback blocked. Click player to start audio.";
     }
   }, delayMs);
@@ -854,6 +945,7 @@ function showAudioUnlockButton(player) {
   const btn = document.getElementById("audio-unlock-btn");
   if (!btn) return;
   btn.style.display = "block";
+  logPlaybackTelemetry("blocked", { source: "unlock-button", reason: "autoplay-policy" });
   btn.onclick = () => {
     audioUnlocked = true;
     btn.style.display = "none";
@@ -861,6 +953,7 @@ function showAudioUnlockButton(player) {
       player.unMute();
       const state = player.getPlayerState();
       if (state !== YT.PlayerState.PLAYING) player.playVideo();
+      logPlaybackTelemetry("recovered", { source: "unlock-button-click" });
     } catch (e) { /* ignore */ }
   };
 }
@@ -996,6 +1089,8 @@ function handleRoomUpdate(room) {
 
   if (room.status !== "playing") {
     stopYouTubePlayback();
+    playbackTelemetryState = "idle";
+    playbackTelemetrySongKey = "";
   }
 
   renderMetaPanel(room);
