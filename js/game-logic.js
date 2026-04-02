@@ -175,6 +175,8 @@ let lastPlaybackReinforceKey = "";
 let audioUnlocked = false;
 let allSubmissionsUnsub = null;
 let lastAttemptedHostReclaimAt = 0;
+let screenModeEnteredFullscreen = false;
+let screenModeFullscreenAttemptedSongKey = "";
 const CLIENT_DESYNC_RECOVERY_COOLDOWN_MS = 12000;
 const PLAYBACK_TELEMETRY_MAX_EVENTS = 120;
 let playbackTelemetryState = "idle";
@@ -305,9 +307,13 @@ function cleanupLocalGameState() {
     allSubmissionsUnsub = null;
   }
   stopYouTubePlayback();
+  exitScreenFullscreenIfNeeded();
+  unlockLandscapeIfSupported();
+  screenModeFullscreenAttemptedSongKey = "";
   hardStoppedVideoId = null;
   hardStoppedAtSec = 0;
   lastLoadedVideoIdForPlayback = null;
+  document.body.classList.remove("screen-device-mode");
   localStorage.removeItem("jamguessr_roomId");
   sessionStorage.removeItem("jamguessr_playerId");
 }
@@ -647,6 +653,81 @@ function shouldRenderPlaybackForCurrentClient() {
   return isCurrentPlayerScreen();
 }
 
+function isScreenPlaybackClient() {
+  return hasScreenPlaybackModeEnabled() && isCurrentPlayerScreen();
+}
+
+function updateScreenDeviceLayoutState() {
+  const isScreenClient = isScreenPlaybackClient();
+  const isPortraitViewport = window.matchMedia("(orientation: portrait)").matches;
+  const shouldRotateForCastMirror = isScreenClient && isPortraitViewport && !document.fullscreenElement;
+
+  document.body.classList.toggle("screen-device-mode", isScreenClient);
+  document.body.classList.toggle("screen-device-portrait-cast", shouldRotateForCastMirror);
+}
+
+async function lockLandscapeIfSupported() {
+  try {
+    if (screen?.orientation?.lock) {
+      await screen.orientation.lock("landscape");
+    }
+  } catch (e) {
+    // Orientation lock is optional and unsupported on many browsers/devices.
+  }
+}
+
+function unlockLandscapeIfSupported() {
+  try {
+    if (screen?.orientation?.unlock) {
+      screen.orientation.unlock();
+    }
+  } catch (e) {
+    // Ignore best-effort cleanup failures.
+  }
+}
+
+async function exitScreenFullscreenIfNeeded() {
+  if (!screenModeEnteredFullscreen) return;
+  if (!document.fullscreenElement) {
+    screenModeEnteredFullscreen = false;
+    return;
+  }
+  try {
+    await document.exitFullscreen();
+  } catch (e) {
+    // Ignore if browser blocks non-gesture exit.
+  } finally {
+    screenModeEnteredFullscreen = false;
+  }
+}
+
+async function maybeEnterFullscreenForScreenPlayback(room) {
+  if (!isScreenPlaybackClient()) return;
+  if (!room || room.status !== "playing" || room.allSongsPlayed) return;
+
+  const songKey = getTelemetrySongKey(room);
+  if (songKey === screenModeFullscreenAttemptedSongKey) return;
+  screenModeFullscreenAttemptedSongKey = songKey;
+
+  if (document.fullscreenElement) {
+    screenModeEnteredFullscreen = true;
+    await lockLandscapeIfSupported();
+    return;
+  }
+
+  const shell = document.querySelector(".youtube-player-shell") || document.querySelector(".app-shell");
+  const requestFullscreen = shell?.requestFullscreen?.bind(shell);
+  if (!requestFullscreen) return;
+
+  try {
+    await requestFullscreen();
+    screenModeEnteredFullscreen = true;
+    await lockLandscapeIfSupported();
+  } catch (e) {
+    // Browsers often require a direct user gesture for fullscreen.
+  }
+}
+
 function mapYouTubeStateToPlaybackStatus(ytState) {
   if (!window.YT) return "paused";
   if (ytState === YT.PlayerState.PLAYING || ytState === YT.PlayerState.BUFFERING) return "playing";
@@ -759,6 +840,19 @@ async function guardClientPlaybackSync(room) {
   try {
     const playerState = ytPlayer.getPlayerState();
     const activeVideoId = ytPlayer.getVideoData?.()?.video_id || "";
+
+    if (isScreenPlaybackClient()) {
+      // For the designated screen client, avoid aggressive drift corrections
+      // that can cause visible micro-seeks/choppiness. Only recover when the
+      // wrong video is mounted or playback is clearly missing.
+      const isPlayingState = window.YT && (playerState === YT.PlayerState.PLAYING || playerState === YT.PlayerState.BUFFERING);
+      const sameExpectedVideo = activeVideoId === playback.videoId;
+      if (!sameExpectedVideo || !isPlayingState) {
+        await applyRoomPlayback(room);
+      }
+      return;
+    }
+
     const actualSec = Math.max(0, Number(ytPlayer.getCurrentTime?.() || 0));
     const expectedSec = playback.status === "paused"
       ? Math.max(0, Number(playback.pausedAtSec || 0))
@@ -813,9 +907,10 @@ function updateClientPlaybackGuardLoop(room, isHost) {
 
   if (clientPlaybackGuardTimer) return;
 
+  const guardIntervalMs = isScreenPlaybackClient() ? 2200 : 1000;
   clientPlaybackGuardTimer = setInterval(() => {
     guardClientPlaybackSync(currentRoom);
-  }, 1000);
+  }, guardIntervalMs);
 }
 
 function handleHostPlaybackStateChange(ytState) {
@@ -933,10 +1028,12 @@ async function applyRoomPlayback(room) {
   const resumingHardStoppedSameVideo =
     isDirectRevealToPlaying && hardStoppedVideoId === playback.videoId;
 
+  const shouldMuteForAutoplay = !isCurrentPlayerHost() && !audioUnlocked && !isScreenPlaybackClient();
+
   // If we hard-stopped on reveal/end and are resuming the same song, load it
   // directly at the synced position for a smoother return to playing.
   if (resumingHardStoppedSameVideo) {
-    if (!isCurrentPlayerHost() && !audioUnlocked) player.mute();
+    if (shouldMuteForAutoplay) player.mute();
     player.loadVideoById({
       videoId: playback.videoId,
       startSeconds: elapsedSec
@@ -945,7 +1042,7 @@ async function applyRoomPlayback(room) {
   }
 
   if ((!sameVideo || forceLoadMissingVideo) && !resumingHardStoppedSameVideo) {
-    if (!isCurrentPlayerHost() && !audioUnlocked) player.mute();
+    if (shouldMuteForAutoplay) player.mute();
     player.loadVideoById({
       videoId: playback.videoId,
       startSeconds: elapsedSec
@@ -961,6 +1058,9 @@ async function applyRoomPlayback(room) {
       if (status === "paused") {
         player.pauseVideo();
       } else {
+        if (isScreenPlaybackClient()) {
+          try { player.unMute(); } catch (e) { /* best-effort */ }
+        }
         player.playVideo();
         markPlaybackPlaying({ source: "applyRoomPlayback" });
       }
@@ -1024,6 +1124,9 @@ function showAudioUnlockButton(player) {
   const btn = document.getElementById("audio-unlock-btn");
   if (!btn) return;
   btn.style.display = "block";
+  if (isScreenPlaybackClient()) {
+    btn.textContent = "Enable Sound (and Fullscreen)";
+  }
   logPlaybackTelemetry("blocked", { source: "unlock-button", reason: "autoplay-policy" });
   btn.onclick = () => {
     audioUnlocked = true;
@@ -1032,6 +1135,9 @@ function showAudioUnlockButton(player) {
       player.unMute();
       const state = player.getPlayerState();
       if (state !== YT.PlayerState.PLAYING) player.playVideo();
+      if (isScreenPlaybackClient()) {
+        maybeEnterFullscreenForScreenPlayback(currentRoom);
+      }
       logPlaybackTelemetry("recovered", { source: "unlock-button-click" });
     } catch (e) { /* ignore */ }
   };
@@ -1143,6 +1249,7 @@ function handleRoomUpdate(room) {
   }
 
   currentRoom = room;
+  updateScreenDeviceLayoutState();
   maybeReclaimHost(room);
   const isHost = !!me.isHost;
 
@@ -1168,6 +1275,9 @@ function handleRoomUpdate(room) {
 
   if (room.status !== "playing") {
     stopYouTubePlayback();
+    exitScreenFullscreenIfNeeded();
+    unlockLandscapeIfSupported();
+    screenModeFullscreenAttemptedSongKey = "";
     playbackTelemetryState = "idle";
     playbackTelemetrySongKey = "";
   }
@@ -1201,6 +1311,12 @@ function handleRoomUpdate(room) {
   if (!pickScreenActive || (!userTypingInSearch && !searchHasText)) {
     renderViewById(targetViewId, room, isHost);
   }
+
+  if (room.status === "playing") {
+    maybeEnterFullscreenForScreenPlayback(room);
+  }
+
+  updateScreenDeviceLayoutState();
 
   lastRoomStatus = room.status;
   isInitialRoomRender = false;
