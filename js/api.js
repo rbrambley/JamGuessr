@@ -240,15 +240,13 @@ async function finishGame(roomId) {
 async function setPlayerRole(roomId, actorId, targetPlayerId, role) {
   const nextRole = role === "screen" ? "screen" : "player";
   const roomRef = db.collection("rooms").doc(roomId);
-  const playersQuery = roomRef.collection("players").orderBy("joinedAt", "asc");
   const actorRef = roomRef.collection("players").doc(actorId);
   const targetRef = roomRef.collection("players").doc(targetPlayerId);
 
   await db.runTransaction(async tx => {
-    const [actorDoc, targetDoc, playersSnap] = await Promise.all([
+    const [actorDoc, targetDoc] = await Promise.all([
       tx.get(actorRef),
-      tx.get(targetRef),
-      tx.get(playersQuery)
+      tx.get(targetRef)
     ]);
 
     if (!actorDoc.exists) {
@@ -274,21 +272,13 @@ async function setPlayerRole(roomId, actorId, targetPlayerId, role) {
       role: nextRole,
       submitted: nextRole === "screen" ? true : !!target.submitted
     });
-
-    const playersData = playersSnap.docs.map(doc => ({ id: doc.id, ...(doc.data() || {}) }));
-    const targetIndex = playersData.findIndex(player => player.id === targetPlayerId);
-    if (targetIndex >= 0) {
-      playersData[targetIndex] = {
-        ...playersData[targetIndex],
-        role: nextRole,
-        submitted: nextRole === "screen" ? true : !!playersData[targetIndex].submitted
-      };
-    }
-
-    const nextLeaderId = resolvePlaybackLeaderIdFromPlayerData(playersData);
-
-    tx.update(roomRef, withRoomActivity({ playbackLeaderPlayerId: nextLeaderId }));
   });
+
+  // Recompute playback leader after role update.
+  const playersSnap = await roomRef.collection("players").orderBy("joinedAt", "asc").get();
+  const playersData = playersSnap.docs.map(doc => ({ id: doc.id, ...(doc.data() || {}) }));
+  const nextLeaderId = resolvePlaybackLeaderIdFromPlayerData(playersData);
+  await roomRef.update(withRoomActivity({ playbackLeaderPlayerId: nextLeaderId }));
 }
 
 async function advanceSong(roomId, nextIndex) {
