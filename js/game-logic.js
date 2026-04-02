@@ -180,6 +180,7 @@ let screenModeFullscreenAttemptedSongKey = "";
 let lastClientGuardCorrectionAt = 0;
 let lastHostPlaybackHeartbeatBroadcastAt = 0;
 let lastRequestedPlaybackSignature = "";
+let lastLeaderAutoSyncKey = "";
 const CLIENT_DESYNC_RECOVERY_COOLDOWN_MS = 12000;
 const PLAYBACK_TELEMETRY_MAX_EVENTS = 120;
 let playbackTelemetryState = "idle";
@@ -325,6 +326,7 @@ function cleanupLocalGameState() {
   unlockLandscapeIfSupported();
   screenModeFullscreenAttemptedSongKey = "";
   lastRequestedPlaybackSignature = "";
+  lastLeaderAutoSyncKey = "";
   hardStoppedVideoId = null;
   hardStoppedAtSec = 0;
   lastLoadedVideoIdForPlayback = null;
@@ -657,6 +659,20 @@ function isCurrentPlayerScreen() {
   return isScreenRole(me);
 }
 
+function getCurrentPlaybackLeaderId(room = currentRoom) {
+  if (room?.playbackLeaderPlayerId) {
+    return room.playbackLeaderPlayerId;
+  }
+
+  const host = (players || []).find(player => !!player?.isHost);
+  return host?.id || null;
+}
+
+function isCurrentPlaybackLeader(room = currentRoom) {
+  const leaderId = getCurrentPlaybackLeaderId(room);
+  return !!leaderId && leaderId === currentPlayerId;
+}
+
 function hasScreenPlaybackModeEnabled() {
   return (players || []).some(player => isScreenRole(player));
 }
@@ -750,7 +766,7 @@ function mapYouTubeStateToPlaybackStatus(ytState) {
 }
 
 async function broadcastHostPlaybackState(force = false) {
-  if (!isCurrentPlayerHost()) return;
+  if (!isCurrentPlaybackLeader(currentRoom)) return;
   if (!currentRoom || currentRoom.status !== "playing" || currentRoom.allSongsPlayed) return;
   if (!ytPlayer || !ytPlayerReady || hostPlaybackSyncInFlight) return;
   if (!force && Date.now() < suppressHostPlaybackBroadcastUntil) return;
@@ -826,7 +842,7 @@ async function broadcastHostPlaybackState(force = false) {
 
   hostPlaybackSyncInFlight = true;
   try {
-    await syncRoomPlayback(roomId, {
+    await syncRoomPlayback(roomId, currentPlayerId, {
       videoId: song.youtubeVideoId,
       round: currentRoom.currentRound,
       songIndex: currentRoom.currentSongIndex,
@@ -844,7 +860,7 @@ async function broadcastHostPlaybackState(force = false) {
 
 function updateHostPlaybackSyncLoop(room, isHost) {
   const shouldRun =
-    !!isHost &&
+    isCurrentPlaybackLeader(room) &&
     shouldRenderPlaybackForCurrentClient() &&
     room?.status === "playing" &&
     !room?.allSongsPlayed;
@@ -870,7 +886,7 @@ function updateHostPlaybackSyncLoop(room, isHost) {
 }
 
 async function guardClientPlaybackSync(room) {
-  if (!room || isCurrentPlayerHost()) return;
+  if (!room || isCurrentPlaybackLeader(room)) return;
   if (!shouldRenderPlaybackForCurrentClient()) return;
   if (room.status !== "playing" || room.allSongsPlayed) return;
 
@@ -973,7 +989,7 @@ function updateClientPlaybackGuardLoop(room, isHost) {
 }
 
 function handleHostPlaybackStateChange(ytState) {
-  if (!isCurrentPlayerHost()) return;
+  if (!isCurrentPlaybackLeader(currentRoom)) return;
   if (!currentRoom || currentRoom.status !== "playing") return;
   if (Date.now() < suppressHostPlaybackBroadcastUntil) return;
   if (!window.YT) return;
@@ -987,7 +1003,7 @@ function handleHostPlaybackStateChange(ytState) {
 async function handleHostAutoplayAdvance() {
   if (!hostAutoplayEnabled || autoplayAdvancePending) return;
   if (!currentRoom || currentRoom.status !== "playing" || currentRoom.allSongsPlayed) return;
-  if (!isCurrentPlayerHost()) return;
+  if (!isCurrentPlaybackLeader(currentRoom)) return;
 
   const roundSongs = getSongsForRound(currentRoom.currentRound);
   if (roundSongs.length === 0) return;
@@ -1078,7 +1094,7 @@ async function applyRoomPlayback(room) {
   clearPlaybackTimer();
   lastPlaybackApplyAttemptAt = Date.now();
   lastAppliedPlaybackVersion = playback.version;
-  if (isCurrentPlayerHost()) {
+  if (isCurrentPlaybackLeader(room)) {
     suppressHostPlaybackBroadcastUntil = Date.now() + 1600;
   }
 
@@ -1232,9 +1248,8 @@ async function syncSongForEveryone(room, songIndex, startDelayMs = 1200) {
   if (!song?.youtubeVideoId) return;
   const startAtMs = Date.now() + startDelayMs;
 
-  // Load and play on the host's player directly — the host skips applyRoomPlayback
-  // so their player must be started here as the source of truth.
-  if (isCurrentPlayerHost()) {
+  // Load and play on the playback leader's player directly.
+  if (isCurrentPlaybackLeader(room)) {
     try {
       const player = await ensureYouTubePlayer();
       if (player) {
@@ -1248,7 +1263,7 @@ async function syncSongForEveryone(room, songIndex, startDelayMs = 1200) {
     }
   }
 
-  await syncRoomPlayback(roomId, {
+  await syncRoomPlayback(roomId, currentPlayerId, {
     videoId: song.youtubeVideoId,
     round: room.currentRound,
     songIndex,
@@ -1270,7 +1285,7 @@ async function syncSongForEveryone(room, songIndex, startDelayMs = 1200) {
       playbackReinforceTimer = null;
       try {
         if (!currentRoom || currentRoom.status !== "playing" || currentRoom.currentRound !== room.currentRound) return;
-        await syncRoomPlayback(roomId, {
+        await syncRoomPlayback(roomId, currentPlayerId, {
           videoId: song.youtubeVideoId,
           round: room.currentRound,
           songIndex,
@@ -1287,8 +1302,37 @@ async function syncSongForEveryone(room, songIndex, startDelayMs = 1200) {
 
 async function advanceSongForEveryone(room, nextIndex) {
   await advanceSong(roomId, nextIndex);
-  const roomForSync = currentRoom || room;
-  await syncSongForEveryone(roomForSync, nextIndex, 1200);
+  if (isCurrentPlaybackLeader(currentRoom || room)) {
+    const roomForSync = currentRoom || room;
+    await syncSongForEveryone(roomForSync, nextIndex, 1200);
+  }
+}
+
+function maybeStartPlaybackFromLeader(room) {
+  if (!room || room.status !== "playing" || room.allSongsPlayed) return;
+  if (!isCurrentPlaybackLeader(room)) return;
+
+  const roundSongs = getSongsForRound(room.currentRound);
+  const song = roundSongs[room.currentSongIndex];
+  if (!song?.youtubeVideoId) return;
+
+  const alreadySynced =
+    !!room.playback &&
+    room.playback.round === room.currentRound &&
+    room.playback.songIndex === room.currentSongIndex &&
+    room.playback.videoId === song.youtubeVideoId;
+  if (alreadySynced) return;
+
+  const autoSyncKey = `${room.currentRound}:${room.currentSongIndex}:${song.youtubeVideoId}`;
+  if (autoSyncKey === lastLeaderAutoSyncKey) return;
+
+  lastLeaderAutoSyncKey = autoSyncKey;
+  syncSongForEveryone(room, room.currentSongIndex, 1200).catch(e => {
+    console.error("Leader auto-start playback failed", e);
+    if (lastLeaderAutoSyncKey === autoSyncKey) {
+      lastLeaderAutoSyncKey = "";
+    }
+  });
 }
 
 // -- Routing by room status ----------------------------------------------------
@@ -1362,9 +1406,12 @@ function handleRoomUpdate(room) {
     unlockLandscapeIfSupported();
     screenModeFullscreenAttemptedSongKey = "";
     lastRequestedPlaybackSignature = "";
+    lastLeaderAutoSyncKey = "";
     playbackTelemetryState = "idle";
     playbackTelemetrySongKey = "";
   }
+
+  maybeStartPlaybackFromLeader(room);
 
   renderMetaPanel(room);
 
@@ -1970,7 +2017,7 @@ function renderPlayingView(room, isHost) {
   setYouTubeInteractionLock(isHost);
   // Host controls their own player directly — applying their own Firestore
   // broadcast would re-cue the video every 3s and interrupt playback.
-  if (!isHost && shouldRenderPlayback) {
+  if (!isCurrentPlaybackLeader(room) && shouldRenderPlayback) {
     const playbackSig = getPlaybackSignature(room?.playback || null);
     if (playbackSig !== lastRequestedPlaybackSignature) {
       lastRequestedPlaybackSignature = playbackSig;
@@ -1989,7 +2036,7 @@ function setYouTubeInteractionLock(isHost) {
   if (!statusEl) return;
 
   if (!isHost && !statusEl.textContent) {
-    statusEl.textContent = "Playback follows the host. You can skip ads; local scrubs will snap back.";
+    statusEl.textContent = "Playback follows the room screen device. Local scrubs may snap back.";
   }
 }
 
@@ -2015,9 +2062,9 @@ function renderNowPlayingBanner(room) {
   }
 
   if (!hasStartedPlaybackForCurrentSong(room)) {
-    banner.textContent = "Host has not started this song yet.";
+    banner.textContent = "Playback leader has not started this song yet.";
     const statusEl = document.getElementById("youtube-player-status");
-    if (statusEl) statusEl.textContent = "Waiting for host to start playback...";
+    if (statusEl) statusEl.textContent = "Waiting for playback leader to start...";
     return;
   }
 
@@ -2200,10 +2247,11 @@ function renderHostPlayingControls(room, isHost) {
 
   if (!room.allSongsPlayed) {
     const currentSong = roundSongs[room.currentSongIndex];
+    const hostIsPlaybackLeader = isCurrentPlaybackLeader(room);
 
     // Auto-trigger playback at round start when autoplay was already enabled
     const autoplaySongKey = `${room.currentRound}:${room.currentSongIndex}`;
-    if (hostAutoplayEnabled && currentSong?.youtubeVideoId && !hasStartedPlaybackForCurrentSong(room) && autoplaySyncedKey !== autoplaySongKey) {
+    if (hostIsPlaybackLeader && hostAutoplayEnabled && currentSong?.youtubeVideoId && !hasStartedPlaybackForCurrentSong(room) && autoplaySyncedKey !== autoplaySongKey) {
       autoplaySyncedKey = autoplaySongKey;
       syncSongForEveryone(room, room.currentSongIndex, 2500).catch(e => console.error("Autoplay round-start sync failed:", e));
     }
@@ -2214,10 +2262,18 @@ function renderHostPlayingControls(room, isHost) {
 
     const playBtn = document.createElement("button");
     playBtn.className = "secondary-btn compact-control-btn";
-    playBtn.textContent = "Play For Everyone";
+    playBtn.textContent = hostIsPlaybackLeader ? "Play For Everyone" : "Start On Screen";
     playBtn.disabled = !currentSong?.youtubeVideoId;
     playBtn.onclick = async () => {
       if (!currentSong?.youtubeVideoId) return;
+
+      if (!hostIsPlaybackLeader) {
+        playBtn.disabled = true;
+        setTimeout(() => {
+          playBtn.disabled = false;
+        }, 1200);
+        return;
+      }
 
       playBtn.disabled = true;
       try {
@@ -2263,6 +2319,7 @@ function renderHostPlayingControls(room, isHost) {
     const autoplayBtn = document.createElement("button");
     autoplayBtn.className = "secondary-btn compact-control-btn compact-toggle-full" + (hostAutoplayEnabled ? " compact-toggle-enabled" : "");
     autoplayBtn.textContent = `Autoplay: ${hostAutoplayEnabled ? "On" : "Off"}`;
+    autoplayBtn.disabled = !hostIsPlaybackLeader;
     autoplayBtn.onclick = async () => {
       hostAutoplayEnabled = !hostAutoplayEnabled;
       if (hostAutoplayEnabled && currentSong?.youtubeVideoId) {

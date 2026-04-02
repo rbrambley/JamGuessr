@@ -15,6 +15,16 @@ function withRoomActivity(patch = {}) {
   };
 }
 
+function resolvePlaybackLeaderIdFromPlayerData(playersData = []) {
+  const screens = playersData.filter(player => (player?.role || "player") === "screen");
+  if (screens.length > 0) {
+    return screens[0].id;
+  }
+
+  const host = playersData.find(player => !!player?.isHost);
+  return host?.id || null;
+}
+
 async function createRoom(hostName, maxRounds) {
   const code = Math.random().toString(36).substring(2, 6).toUpperCase();
   const now = nowMs();
@@ -41,6 +51,7 @@ async function createRoom(hostName, maxRounds) {
       joinedAt: Date.now()
     });
   // Persist IDs locally
+  await roomRef.update(withRoomActivity({ playbackLeaderPlayerId: playerRef.id }));
   localStorage.setItem("jamguessr_roomId", roomRef.id);
   sessionStorage.setItem("jamguessr_playerId", playerRef.id);
   localStorage.removeItem("jamguessr_playerId");
@@ -181,11 +192,17 @@ async function startGame(roomId) {
 }
 
 async function startPlaying(roomId) {
-  await db.collection("rooms").doc(roomId).update({
+  const roomRef = db.collection("rooms").doc(roomId);
+  const playersSnap = await roomRef.collection("players").orderBy("joinedAt", "asc").get();
+  const playersData = playersSnap.docs.map(doc => ({ id: doc.id, ...(doc.data() || {}) }));
+  const nextLeaderId = resolvePlaybackLeaderIdFromPlayerData(playersData);
+
+  await roomRef.update({
     status: "playing",
     currentSongIndex: 0,
     allSongsPlayed: false,
     playback: null,
+    playbackLeaderPlayerId: nextLeaderId,
     lastActivityAt: nowMs()
   });
 }
@@ -223,13 +240,15 @@ async function finishGame(roomId) {
 async function setPlayerRole(roomId, actorId, targetPlayerId, role) {
   const nextRole = role === "screen" ? "screen" : "player";
   const roomRef = db.collection("rooms").doc(roomId);
+  const playersQuery = roomRef.collection("players").orderBy("joinedAt", "asc");
   const actorRef = roomRef.collection("players").doc(actorId);
   const targetRef = roomRef.collection("players").doc(targetPlayerId);
 
   await db.runTransaction(async tx => {
-    const [actorDoc, targetDoc] = await Promise.all([
+    const [actorDoc, targetDoc, playersSnap] = await Promise.all([
       tx.get(actorRef),
-      tx.get(targetRef)
+      tx.get(targetRef),
+      tx.get(playersQuery)
     ]);
 
     if (!actorDoc.exists) {
@@ -256,7 +275,19 @@ async function setPlayerRole(roomId, actorId, targetPlayerId, role) {
       submitted: nextRole === "screen" ? true : !!target.submitted
     });
 
-    tx.update(roomRef, withRoomActivity());
+    const playersData = playersSnap.docs.map(doc => ({ id: doc.id, ...(doc.data() || {}) }));
+    const targetIndex = playersData.findIndex(player => player.id === targetPlayerId);
+    if (targetIndex >= 0) {
+      playersData[targetIndex] = {
+        ...playersData[targetIndex],
+        role: nextRole,
+        submitted: nextRole === "screen" ? true : !!playersData[targetIndex].submitted
+      };
+    }
+
+    const nextLeaderId = resolvePlaybackLeaderIdFromPlayerData(playersData);
+
+    tx.update(roomRef, withRoomActivity({ playbackLeaderPlayerId: nextLeaderId }));
   });
 }
 
@@ -269,8 +300,43 @@ async function advanceSong(roomId, nextIndex) {
   });
 }
 
-async function syncRoomPlayback(roomId, playback) {
-  await db.collection("rooms").doc(roomId).update(withRoomActivity({ playback }));
+async function syncRoomPlayback(roomId, actorId, playback) {
+  const roomRef = db.collection("rooms").doc(roomId);
+  const actorRef = roomRef.collection("players").doc(actorId);
+
+  await db.runTransaction(async tx => {
+    const [roomDoc, actorDoc] = await Promise.all([
+      tx.get(roomRef),
+      tx.get(actorRef)
+    ]);
+
+    if (!roomDoc.exists) {
+      throw new Error("Room not found.");
+    }
+
+    if (!actorDoc.exists) {
+      throw new Error("Playback actor is not in this room.");
+    }
+
+    const roomData = roomDoc.data() || {};
+    const actorData = actorDoc.data() || {};
+    const leaderId = roomData.playbackLeaderPlayerId || null;
+
+    if (!leaderId) {
+      throw new Error("Playback leader is not configured.");
+    }
+
+    if (leaderId !== actorId) {
+      throw new Error("Only the playback leader can publish playback sync.");
+    }
+
+    if ((actorData.role || "player") === "screen" || !!actorData.isHost) {
+      tx.update(roomRef, withRoomActivity({ playback }));
+      return;
+    }
+
+    throw new Error("Playback leader is invalid.");
+  });
 }
 
 async function markAllSongsPlayed(roomId) {
@@ -292,6 +358,9 @@ async function resetGame(roomId) {
     batch.update(doc.ref, { score: 0, submitted: false });
   });
 
+  const playersData = playersSnap.docs.map(doc => ({ id: doc.id, ...(doc.data() || {}) }));
+  const nextLeaderId = resolvePlaybackLeaderIdFromPlayerData(playersData);
+
   songsSnap.docs.forEach(doc => {
     batch.delete(doc.ref);
   });
@@ -306,6 +375,7 @@ async function resetGame(roomId) {
     currentSongIndex: 0,
     allSongsPlayed: false,
     playback: null,
+    playbackLeaderPlayerId: nextLeaderId,
     lastActivityAt: nowMs(),
     revealScoredRound: null
   });
@@ -316,6 +386,7 @@ async function resetGame(roomId) {
 async function leaveRoom(roomId, playerId) {
   const roomRef = db.collection("rooms").doc(roomId);
   const playersQuery = roomRef.collection("players").orderBy("joinedAt", "asc");
+  const now = Date.now();
 
   await db.runTransaction(async tx => {
     const playersSnap = await tx.get(playersQuery);
@@ -329,6 +400,10 @@ async function leaveRoom(roomId, playerId) {
     tx.delete(leavingDoc.ref);
 
     if (!leavingIsHost) {
+      const remainingNonHost = players.filter(doc => doc.id !== playerId);
+      const remainingData = remainingNonHost.map(doc => ({ id: doc.id, ...(doc.data() || {}) }));
+      const nextLeaderId = resolvePlaybackLeaderIdFromPlayerData(remainingData);
+      tx.update(roomRef, withRoomActivity({ playbackLeaderPlayerId: nextLeaderId }));
       return;
     }
 
@@ -351,6 +426,9 @@ async function leaveRoom(roomId, playerId) {
 
     tx.update(roomRef, {
       lastActivityAt: now,
+      playbackLeaderPlayerId: resolvePlaybackLeaderIdFromPlayerData(
+        remaining.map(doc => ({ id: doc.id, ...(doc.data() || {}) }))
+      ),
       lastHostChange: {
         previousHostId: playerId,
         hostId: replacement.id,
@@ -398,6 +476,15 @@ async function ensureActiveHost(roomId, staleAfterMs = PLAYER_STALE_AFTER_MS, ho
     const playerDocs = await Promise.all(players.map(p => tx.get(p.ref)));
 
     const replacementData = playerDocs.find(d => d.id === replacementId)?.data() || {};
+    const projectedPlayers = playerDocs.map(doc => {
+      const data = doc.data() || {};
+      return {
+        id: doc.id,
+        ...data,
+        isHost: doc.id === replacementId
+      };
+    });
+    const nextLeaderId = resolvePlaybackLeaderIdFromPlayerData(projectedPlayers);
 
     playerDocs.forEach(doc => {
       const data = doc.data() || {};
@@ -410,6 +497,7 @@ async function ensureActiveHost(roomId, staleAfterMs = PLAYER_STALE_AFTER_MS, ho
 
     tx.update(roomRef, {
       lastActivityAt: now,
+      playbackLeaderPlayerId: nextLeaderId,
       lastHostChange: {
         previousHostId: currentHostId,
         hostId: replacementId,
@@ -463,6 +551,16 @@ async function reclaimHostIfEligible(roomId, playerId, reclaimWindowMs = HOST_RE
     const freshReclaimingDoc = playerDocs.find(doc => doc.id === playerId);
     if (!freshReclaimingDoc.exists) return { changed: false };
 
+    const projectedPlayers = playerDocs.map(doc => {
+      const data = doc.data() || {};
+      return {
+        id: doc.id,
+        ...data,
+        isHost: doc.id === playerId
+      };
+    });
+    const nextLeaderId = resolvePlaybackLeaderIdFromPlayerData(projectedPlayers);
+
     playerDocs.forEach(doc => {
       const data = doc.data() || {};
       if (doc.id === playerId) {
@@ -474,6 +572,7 @@ async function reclaimHostIfEligible(roomId, playerId, reclaimWindowMs = HOST_RE
 
     tx.update(roomRef, {
       lastActivityAt: now,
+      playbackLeaderPlayerId: nextLeaderId,
       lastHostChange: {
         previousHostId: currentHostDoc?.id || null,
         hostId: playerId,
