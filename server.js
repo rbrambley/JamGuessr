@@ -9,10 +9,10 @@ const YOUTUBE_API_KEY = process.env.YOUTUBE_API_KEY || "";
 const ALLOWED_ORIGIN = process.env.ALLOWED_ORIGIN || "*";
 const SEARCH_MIN_QUERY_LENGTH = 4;
 const SEARCH_MAX_RESULTS = 5;
-const SEARCH_FETCH_CANDIDATES = 10;
+const SEARCH_FETCH_CANDIDATES = 15;
 const MUSIC_CATEGORY_ID = "10";
 const MAX_VIDEO_DURATION_SECONDS = 12 * 60;
-const MIN_VIDEO_DURATION_SECONDS = 30;
+const MIN_VIDEO_DURATION_SECONDS = 75;
 const CACHE_TTL_MS = Number(process.env.SEARCH_CACHE_TTL_MS || (7 * 24 * 60 * 60 * 1000));
 const NEGATIVE_CACHE_TTL_MS = Number(process.env.SEARCH_NEGATIVE_CACHE_TTL_MS || (6 * 60 * 60 * 1000));
 const CACHE_PERSIST_FILE = process.env.SEARCH_CACHE_FILE || path.join(ROOT_DIR, ".cache", "youtube-search-cache.json");
@@ -374,6 +374,7 @@ async function handleYouTubeSearch(req, reqUrl, res) {
       apiUrl.searchParams.set("type", "video");
       apiUrl.searchParams.set("videoEmbeddable", "true");
       apiUrl.searchParams.set("videoCategoryId", MUSIC_CATEGORY_ID);
+      apiUrl.searchParams.set("order", "viewCount");
       apiUrl.searchParams.set("maxResults", String(SEARCH_FETCH_CANDIDATES));
       apiUrl.searchParams.set("q", query);
       apiUrl.searchParams.set("key", YOUTUBE_API_KEY);
@@ -451,6 +452,12 @@ async function handleYouTubeSearch(req, reqUrl, res) {
           if (durationSeconds < MIN_VIDEO_DURATION_SECONDS) return false;
           if (durationSeconds > MAX_VIDEO_DURATION_SECONDS) return false;
           return true;
+        })
+        .sort((a, b) => {
+          const DEPRIORITIZE_PATTERN = /\b(live|concert|tour|karaoke|cover|tutorial|acoustic|remix|slowed|sped[ -]up|nightcore)\b/i;
+          const aLow = DEPRIORITIZE_PATTERN.test(a.title) ? 1 : 0;
+          const bLow = DEPRIORITIZE_PATTERN.test(b.title) ? 1 : 0;
+          return aLow - bLow;
         })
         .slice(0, SEARCH_MAX_RESULTS)
         .map(item => ({
