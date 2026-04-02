@@ -603,6 +603,7 @@ async function ensureYouTubePlayer() {
           showYouTubePlayerError(msg);
         }
       }
+      });
     });
 
     ytPlayerInitPromise = null;
