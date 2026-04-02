@@ -13,7 +13,17 @@ const SEARCH_FETCH_CANDIDATES = 10;
 const MUSIC_CATEGORY_ID = "10";
 const MAX_VIDEO_DURATION_SECONDS = 12 * 60;
 const MIN_VIDEO_DURATION_SECONDS = 30;
-const CACHE_TTL_MS = 24 * 60 * 60 * 1000;
+const CACHE_TTL_MS = Number(process.env.SEARCH_CACHE_TTL_MS || (7 * 24 * 60 * 60 * 1000));
+const NEGATIVE_CACHE_TTL_MS = Number(process.env.SEARCH_NEGATIVE_CACHE_TTL_MS || (6 * 60 * 60 * 1000));
+const CACHE_PERSIST_FILE = process.env.SEARCH_CACHE_FILE || path.join(ROOT_DIR, ".cache", "youtube-search-cache.json");
+const CACHE_PERSIST_DEBOUNCE_MS = Number(process.env.SEARCH_CACHE_PERSIST_DEBOUNCE_MS || 500);
+const CACHE_PERSIST_MAX_ENTRIES = Number(process.env.SEARCH_CACHE_MAX_ENTRIES || 5000);
+const QUOTA_SEARCH_UNITS = Number(process.env.YOUTUBE_SEARCH_UNITS || 100);
+const QUOTA_DETAILS_UNITS = Number(process.env.YOUTUBE_DETAILS_UNITS || 1);
+const QUOTA_DAILY_BUDGET_UNITS = Number(process.env.YOUTUBE_DAILY_BUDGET_UNITS || 10000);
+const QUOTA_GUARD_THRESHOLD_UNITS = Number(
+  process.env.YOUTUBE_QUOTA_GUARD_THRESHOLD_UNITS || Math.floor(QUOTA_DAILY_BUDGET_UNITS * 0.85)
+);
 const ROOT_DIR = __dirname;
 const CLEANUP_INTERVAL_MS = Number(process.env.ROOM_CLEANUP_INTERVAL_MS || (5 * 60 * 1000));
 const CLEANUP_SCAN_LIMIT = Number(process.env.ROOM_CLEANUP_SCAN_LIMIT || 200);
@@ -23,8 +33,110 @@ const CLEANUP_ACTIVE_IDLE_MS = Number(process.env.ROOM_CLEANUP_ACTIVE_IDLE_MS ||
 const CLEANUP_FINISHED_IDLE_MS = Number(process.env.ROOM_CLEANUP_FINISHED_IDLE_MS || (24 * 60 * 60 * 1000));
 
 const cache = new Map();
+const inFlightSearches = new Map();
 let cleanupBusy = false;
 let adminDb = null;
+let cachePersistTimer = null;
+let estimatedQuotaDayKey = "";
+let estimatedQuotaUnitsUsed = 0;
+
+function getUtcDayKey() {
+  return new Date().toISOString().slice(0, 10);
+}
+
+function resetQuotaIfDayRolled() {
+  const dayKey = getUtcDayKey();
+  if (estimatedQuotaDayKey !== dayKey) {
+    estimatedQuotaDayKey = dayKey;
+    estimatedQuotaUnitsUsed = 0;
+  }
+}
+
+function addEstimatedQuota(units) {
+  resetQuotaIfDayRolled();
+  estimatedQuotaUnitsUsed += Math.max(0, Number(units || 0));
+  schedulePersistedCacheWrite();
+}
+
+function canSpendEstimatedQuota(units) {
+  resetQuotaIfDayRolled();
+  return (estimatedQuotaUnitsUsed + Math.max(0, Number(units || 0))) <= QUOTA_GUARD_THRESHOLD_UNITS;
+}
+
+function schedulePersistedCacheWrite() {
+  if (cachePersistTimer) return;
+  cachePersistTimer = setTimeout(() => {
+    cachePersistTimer = null;
+    persistCacheToDisk();
+  }, CACHE_PERSIST_DEBOUNCE_MS);
+}
+
+function persistCacheToDisk() {
+  try {
+    const now = Date.now();
+    const entries = [];
+
+    cache.forEach((entry, query) => {
+      if (!entry || entry.expiresAt <= now) return;
+      entries.push({
+        query,
+        items: Array.isArray(entry.items) ? entry.items : [],
+        expiresAt: Number(entry.expiresAt || 0),
+        isNegative: !!entry.isNegative
+      });
+    });
+
+    entries.sort((a, b) => b.expiresAt - a.expiresAt);
+    const limited = entries.slice(0, CACHE_PERSIST_MAX_ENTRIES);
+
+    const payload = {
+      version: 1,
+      quota: {
+        dayKey: estimatedQuotaDayKey || getUtcDayKey(),
+        unitsUsed: Math.max(0, Number(estimatedQuotaUnitsUsed || 0))
+      },
+      entries: limited
+    };
+
+    fs.mkdirSync(path.dirname(CACHE_PERSIST_FILE), { recursive: true });
+    fs.writeFileSync(CACHE_PERSIST_FILE, JSON.stringify(payload), "utf8");
+  } catch (e) {
+    console.warn("Warning: could not persist search cache:", e.message || e);
+  }
+}
+
+function loadCacheFromDisk() {
+  try {
+    if (!fs.existsSync(CACHE_PERSIST_FILE)) return;
+    const raw = fs.readFileSync(CACHE_PERSIST_FILE, "utf8");
+    const parsed = JSON.parse(raw);
+
+    const now = Date.now();
+    const entries = Array.isArray(parsed?.entries) ? parsed.entries : [];
+    entries.forEach(entry => {
+      const query = normalizeQuery(entry?.query || "");
+      if (!query) return;
+      const expiresAt = Number(entry?.expiresAt || 0);
+      if (expiresAt <= now) return;
+
+      cache.set(query, {
+        items: Array.isArray(entry?.items) ? entry.items : [],
+        expiresAt,
+        isNegative: !!entry?.isNegative
+      });
+    });
+
+    const quotaDayKey = String(parsed?.quota?.dayKey || "");
+    if (quotaDayKey === getUtcDayKey()) {
+      estimatedQuotaDayKey = quotaDayKey;
+      estimatedQuotaUnitsUsed = Math.max(0, Number(parsed?.quota?.unitsUsed || 0));
+    } else {
+      resetQuotaIfDayRolled();
+    }
+  } catch (e) {
+    console.warn("Warning: could not load persisted search cache:", e.message || e);
+  }
+}
 
 function parseServiceAccountJson() {
   const raw = process.env.FIREBASE_SERVICE_ACCOUNT_JSON || "";
@@ -178,16 +290,28 @@ function getCachedResults(query) {
   if (!cached) return null;
   if (cached.expiresAt < Date.now()) {
     cache.delete(query);
+    schedulePersistedCacheWrite();
     return null;
   }
-  return cached.items;
+  return cached;
 }
 
-function setCachedResults(query, items) {
+function setCachedResults(query, items, options = {}) {
+  const ttlMs = Math.max(1000, Number(options.ttlMs || CACHE_TTL_MS));
   cache.set(query, {
     items,
-    expiresAt: Date.now() + CACHE_TTL_MS
+    expiresAt: Date.now() + ttlMs,
+    isNegative: !!options.isNegative
   });
+  schedulePersistedCacheWrite();
+}
+
+function isYouTubeQuotaError(payload) {
+  const message = String(payload?.error?.message || "");
+  const reasons = Array.isArray(payload?.error?.errors)
+    ? payload.error.errors.map(err => String(err?.reason || "")).join(" ")
+    : "";
+  return /quota|dailyLimitExceeded|quotaExceeded|daily limit|get started/i.test(`${message} ${reasons}`);
 }
 
 function parseIso8601DurationToSeconds(value) {
@@ -214,88 +338,152 @@ async function handleYouTubeSearch(req, reqUrl, res) {
     return;
   }
 
-  const cachedItems = getCachedResults(normalizedQuery);
-  if (cachedItems) {
-    sendJson(req, res, 200, { items: cachedItems, cached: true });
+  const cachedEntry = getCachedResults(normalizedQuery);
+  if (cachedEntry) {
+    sendJson(req, res, 200, {
+      items: cachedEntry.items,
+      cached: true,
+      cachedNegative: !!cachedEntry.isNegative
+    });
     return;
   }
 
+  if (inFlightSearches.has(normalizedQuery)) {
+    const sharedResult = await inFlightSearches.get(normalizedQuery);
+    sendJson(req, res, sharedResult.statusCode, sharedResult.payload);
+    return;
+  }
+
+  const searchPromise = (async () => {
+    try {
+      const estimatedCost = QUOTA_SEARCH_UNITS + QUOTA_DETAILS_UNITS;
+      if (!canSpendEstimatedQuota(estimatedCost)) {
+        return {
+          statusCode: 429,
+          payload: {
+            error: {
+              message: "YouTube search temporarily unavailable (daily quota guard active)."
+            },
+            quotaGuard: true
+          }
+        };
+      }
+
+      const apiUrl = new URL("https://www.googleapis.com/youtube/v3/search");
+      apiUrl.searchParams.set("part", "snippet");
+      apiUrl.searchParams.set("type", "video");
+      apiUrl.searchParams.set("videoEmbeddable", "true");
+      apiUrl.searchParams.set("videoCategoryId", MUSIC_CATEGORY_ID);
+      apiUrl.searchParams.set("maxResults", String(SEARCH_FETCH_CANDIDATES));
+      apiUrl.searchParams.set("q", query);
+      apiUrl.searchParams.set("key", YOUTUBE_API_KEY);
+
+      const searchResponse = await fetch(apiUrl);
+      addEstimatedQuota(QUOTA_SEARCH_UNITS);
+      const searchData = await searchResponse.json();
+
+      if (!searchResponse.ok) {
+        if (isYouTubeQuotaError(searchData)) {
+          estimatedQuotaUnitsUsed = Math.max(estimatedQuotaUnitsUsed, QUOTA_GUARD_THRESHOLD_UNITS);
+          schedulePersistedCacheWrite();
+        }
+        return {
+          statusCode: searchResponse.status,
+          payload: {
+            error: { message: searchData?.error?.message || "YouTube search failed." }
+          }
+        };
+      }
+
+      const baseItems = (searchData.items || []).map(item => ({
+        id: item.id?.videoId || "",
+        title: item.snippet?.title || "",
+        artist: item.snippet?.channelTitle || "",
+        thumbnailUrl: item.snippet?.thumbnails?.medium?.url || item.snippet?.thumbnails?.default?.url || ""
+      })).filter(item => item.id);
+
+      if (baseItems.length === 0) {
+        setCachedResults(normalizedQuery, [], {
+          ttlMs: NEGATIVE_CACHE_TTL_MS,
+          isNegative: true
+        });
+        return {
+          statusCode: 200,
+          payload: { items: [], cached: false }
+        };
+      }
+
+      const detailsUrl = new URL("https://www.googleapis.com/youtube/v3/videos");
+      detailsUrl.searchParams.set("part", "contentDetails,snippet");
+      detailsUrl.searchParams.set("id", baseItems.map(item => item.id).join(","));
+      detailsUrl.searchParams.set("key", YOUTUBE_API_KEY);
+
+      const detailsResponse = await fetch(detailsUrl);
+      addEstimatedQuota(QUOTA_DETAILS_UNITS);
+      const detailsData = await detailsResponse.json();
+
+      if (!detailsResponse.ok) {
+        if (isYouTubeQuotaError(detailsData)) {
+          estimatedQuotaUnitsUsed = Math.max(estimatedQuotaUnitsUsed, QUOTA_GUARD_THRESHOLD_UNITS);
+          schedulePersistedCacheWrite();
+        }
+        return {
+          statusCode: detailsResponse.status,
+          payload: {
+            error: { message: detailsData?.error?.message || "Could not validate YouTube results." }
+          }
+        };
+      }
+
+      const detailsById = new Map((detailsData.items || []).map(item => [item.id, item]));
+
+      const items = baseItems
+        .filter(item => {
+          const details = detailsById.get(item.id);
+          if (!details) return false;
+
+          const categoryId = details.snippet?.categoryId || "";
+          const durationSeconds = parseIso8601DurationToSeconds(details.contentDetails?.duration || "");
+
+          if (categoryId !== MUSIC_CATEGORY_ID) return false;
+          if (durationSeconds < MIN_VIDEO_DURATION_SECONDS) return false;
+          if (durationSeconds > MAX_VIDEO_DURATION_SECONDS) return false;
+          return true;
+        })
+        .slice(0, SEARCH_MAX_RESULTS)
+        .map(item => ({
+          youtubeVideoId: item.id,
+          youtubeUrl: `https://www.youtube.com/watch?v=${item.id}`,
+          title: item.title,
+          artist: item.artist,
+          thumbnailUrl: item.thumbnailUrl
+        }));
+
+      setCachedResults(normalizedQuery, items, {
+        ttlMs: items.length > 0 ? CACHE_TTL_MS : NEGATIVE_CACHE_TTL_MS,
+        isNegative: items.length === 0
+      });
+
+      return {
+        statusCode: 200,
+        payload: { items, cached: false }
+      };
+    } catch (error) {
+      return {
+        statusCode: 500,
+        payload: {
+          error: { message: error.message || "Unexpected server error." }
+        }
+      };
+    }
+  })();
+
+  inFlightSearches.set(normalizedQuery, searchPromise);
   try {
-    const apiUrl = new URL("https://www.googleapis.com/youtube/v3/search");
-    apiUrl.searchParams.set("part", "snippet");
-    apiUrl.searchParams.set("type", "video");
-    apiUrl.searchParams.set("videoEmbeddable", "true");
-    apiUrl.searchParams.set("videoCategoryId", MUSIC_CATEGORY_ID);
-    apiUrl.searchParams.set("maxResults", String(SEARCH_FETCH_CANDIDATES));
-    apiUrl.searchParams.set("q", query);
-    apiUrl.searchParams.set("key", YOUTUBE_API_KEY);
-
-    const searchResponse = await fetch(apiUrl);
-    const searchData = await searchResponse.json();
-
-    if (!searchResponse.ok) {
-      sendJson(req, res, searchResponse.status, {
-        error: { message: searchData?.error?.message || "YouTube search failed." }
-      });
-      return;
-    }
-
-    const baseItems = (searchData.items || []).map(item => ({
-      id: item.id?.videoId || "",
-      title: item.snippet?.title || "",
-      artist: item.snippet?.channelTitle || "",
-      thumbnailUrl: item.snippet?.thumbnails?.medium?.url || item.snippet?.thumbnails?.default?.url || ""
-    })).filter(item => item.id);
-
-    if (baseItems.length === 0) {
-      setCachedResults(normalizedQuery, []);
-      sendJson(req, res, 200, { items: [], cached: false });
-      return;
-    }
-
-    const detailsUrl = new URL("https://www.googleapis.com/youtube/v3/videos");
-    detailsUrl.searchParams.set("part", "contentDetails,snippet");
-    detailsUrl.searchParams.set("id", baseItems.map(item => item.id).join(","));
-    detailsUrl.searchParams.set("key", YOUTUBE_API_KEY);
-
-    const detailsResponse = await fetch(detailsUrl);
-    const detailsData = await detailsResponse.json();
-
-    if (!detailsResponse.ok) {
-      sendJson(req, res, detailsResponse.status, {
-        error: { message: detailsData?.error?.message || "Could not validate YouTube results." }
-      });
-      return;
-    }
-
-    const detailsById = new Map((detailsData.items || []).map(item => [item.id, item]));
-
-    const items = baseItems
-      .filter(item => {
-        const details = detailsById.get(item.id);
-        if (!details) return false;
-
-        const categoryId = details.snippet?.categoryId || "";
-        const durationSeconds = parseIso8601DurationToSeconds(details.contentDetails?.duration || "");
-
-        if (categoryId !== MUSIC_CATEGORY_ID) return false;
-        if (durationSeconds < MIN_VIDEO_DURATION_SECONDS) return false;
-        if (durationSeconds > MAX_VIDEO_DURATION_SECONDS) return false;
-        return true;
-      })
-      .slice(0, SEARCH_MAX_RESULTS)
-      .map(item => ({
-        youtubeVideoId: item.id,
-        youtubeUrl: `https://www.youtube.com/watch?v=${item.id}`,
-        title: item.title,
-        artist: item.artist,
-        thumbnailUrl: item.thumbnailUrl
-      }));
-
-    setCachedResults(normalizedQuery, items);
-    sendJson(req, res, 200, { items, cached: false });
-  } catch (error) {
-    sendJson(req, res, 500, { error: { message: error.message || "Unexpected server error." } });
+    const result = await searchPromise;
+    sendJson(req, res, result.statusCode, result.payload);
+  } finally {
+    inFlightSearches.delete(normalizedQuery);
   }
 }
 
@@ -367,7 +555,11 @@ const server = http.createServer(async (req, res) => {
 });
 
 server.listen(PORT, () => {
+  loadCacheFromDisk();
+  resetQuotaIfDayRolled();
   console.log(`JamGuessr server running at http://localhost:${PORT}`);
+  console.log(`YouTube quota guard threshold: ${QUOTA_GUARD_THRESHOLD_UNITS}/${QUOTA_DAILY_BUDGET_UNITS} units/day`);
+  console.log(`Loaded persisted search cache entries: ${cache.size}`);
   if (!YOUTUBE_API_KEY) {
     console.warn("Warning: YOUTUBE_API_KEY is not set. /api/youtube-search will fail until you provide it.");
   }
