@@ -1,16 +1,16 @@
 // ── Lobby UI ───────────────────────────────────────────────────────────────────
 
-function isScreenRole(player) {
+function isLobbyScreenRole(player) {
   return (player?.role || "player") === "screen";
 }
 
-function getParticipatingPlayers(playersList) {
-  return (playersList || []).filter(player => !isScreenRole(player));
+function getLobbyParticipatingPlayers(playersList) {
+  return (playersList || []).filter(player => !isLobbyScreenRole(player));
 }
 
 function renderLobby(players, code, isHost) {
   const minimumPlayers = 2;
-  const participantCount = getParticipatingPlayers(players).length;
+  const participantCount = getLobbyParticipatingPlayers(players).length;
   const screenCount = Math.max(0, players.length - participantCount);
   const roomCodeEl = document.getElementById("room-code-display");
   if (roomCodeEl) {
@@ -112,7 +112,7 @@ function renderLobby(players, code, isHost) {
     if (p.isHost) {
       rolePill.className = "role-pill role-pill-host";
       rolePill.textContent = "Host";
-    } else if (isScreenRole(p)) {
+    } else if (isLobbyScreenRole(p)) {
       rolePill.className = "role-pill role-pill-screen";
       rolePill.textContent = "Screen";
     } else {
@@ -134,7 +134,7 @@ function renderLobby(players, code, isHost) {
       const roleBtn = document.createElement("button");
       roleBtn.type = "button";
       roleBtn.className = "secondary-btn role-toggle-link";
-      const currentlyScreen = isScreenRole(p);
+      const currentlyScreen = isLobbyScreenRole(p);
       roleBtn.textContent = currentlyScreen ? "Set as Player" : "Set as Screen";
       roleBtn.onclick = async () => {
         roleBtn.disabled = true;
