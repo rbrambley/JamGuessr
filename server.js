@@ -414,7 +414,7 @@ async function handleYouTubeSearch(req, reqUrl, res) {
       }
 
       const detailsUrl = new URL("https://www.googleapis.com/youtube/v3/videos");
-      detailsUrl.searchParams.set("part", "contentDetails,snippet");
+      detailsUrl.searchParams.set("part", "contentDetails,snippet,status");
       detailsUrl.searchParams.set("id", baseItems.map(item => item.id).join(","));
       detailsUrl.searchParams.set("key", YOUTUBE_API_KEY);
 
@@ -444,7 +444,9 @@ async function handleYouTubeSearch(req, reqUrl, res) {
 
           const categoryId = details.snippet?.categoryId || "";
           const durationSeconds = parseIso8601DurationToSeconds(details.contentDetails?.duration || "");
+          const embeddable = details.status?.embeddable !== false;
 
+          if (!embeddable) return false;
           if (categoryId !== MUSIC_CATEGORY_ID) return false;
           if (durationSeconds < MIN_VIDEO_DURATION_SECONDS) return false;
           if (durationSeconds > MAX_VIDEO_DURATION_SECONDS) return false;

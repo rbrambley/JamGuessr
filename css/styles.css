@@ -668,6 +668,11 @@ li { margin: 8px 0; line-height: 1.5; }
   color: #94a3b8;
 }
 
+.youtube-player-status-error {
+  color: #f87171;
+  font-weight: 600;
+}
+
 .now-playing-label {
   color: #f97316;
   font-weight: 700;

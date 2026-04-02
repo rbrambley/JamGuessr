@@ -571,12 +571,30 @@ async function ensureYouTubePlayer() {
           if (window.YT) {
             if (evt?.data === YT.PlayerState.PLAYING || evt?.data === YT.PlayerState.BUFFERING) {
               markPlaybackPlaying({ source: "yt-onStateChange", ytState: evt?.data });
+              clearYouTubePlayerError();
             }
           }
           if (evt?.data === YT.PlayerState.ENDED) {
             handleHostAutoplayAdvance();
           }
           handleHostPlaybackStateChange(evt?.data);
+        },
+        onError: evt => {
+          const code = evt?.data;
+          const VIDEO_NOT_FOUND = 100;
+          const EMBED_NOT_ALLOWED = 101;
+          const EMBED_NOT_ALLOWED_DISGUISED = 150;
+          const isEmbedError = code === EMBED_NOT_ALLOWED || code === EMBED_NOT_ALLOWED_DISGUISED;
+          const isNotFound = code === VIDEO_NOT_FOUND;
+          const videoId = lastLoadedVideoIdForPlayback || "unknown";
+          const reason = isEmbedError ? "embed-not-allowed" : isNotFound ? "video-not-found" : `yt-error-${code}`;
+          logPlaybackTelemetry("blocked", { source: "yt-onError", ytErrorCode: code, videoId, reason });
+          const msg = isEmbedError
+            ? "\u26a0\ufe0f This video can't be embedded. The host should pick a different upload."
+            : isNotFound
+              ? "\u26a0\ufe0f Video not found or unavailable."
+              : `\u26a0\ufe0f YouTube playback error (code ${code}).`;
+          showYouTubePlayerError(msg);
         }
       }
     });
@@ -938,6 +956,19 @@ async function applyRoomPlayback(room) {
       if (statusEl) statusEl.textContent = "Playback blocked. Click player to start audio.";
     }
   }, delayMs);
+}
+
+function showYouTubePlayerError(message) {
+  const statusEl = document.getElementById("youtube-player-status");
+  if (!statusEl) return;
+  statusEl.textContent = message;
+  statusEl.classList.add("youtube-player-status-error");
+}
+
+function clearYouTubePlayerError() {
+  const statusEl = document.getElementById("youtube-player-status");
+  if (!statusEl) return;
+  statusEl.classList.remove("youtube-player-status-error");
 }
 
 function showAudioUnlockButton(player) {
