@@ -53,5 +53,5 @@
   <line x1="288" y1="210" x2="332" y2="248" stroke="#94a3b8" stroke-opacity="0.6" stroke-width="2.5" stroke-linecap="round"/>
 
   <!-- Bottom label -->
-  <text x="256" y="470" text-anchor="middle" font-family="Arial, sans-serif" font-weight="600" font-size="28" fill="#94a3b8" fill-opacity="0.7" letter-spacing="3">MUSIC QUIZ</text>
+  <text x="256" y="470" text-anchor="middle" font-family="Arial, sans-serif" font-weight="600" font-size="28" fill="#94a3b8" fill-opacity="0.7" letter-spacing="3">SOCIAL MUSIC GAME</text>
 </svg>
