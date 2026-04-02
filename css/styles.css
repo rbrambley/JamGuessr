@@ -49,7 +49,7 @@ body {
   margin: 8px 0 16px;
   border: 1px solid rgba(130, 149, 193, 0.24);
   border-radius: 16px;
-  background: linear-gradient(135deg, rgba(24, 37, 64, 0.5), rgba(17, 24, 39, 0.2));
+  background: transparent;
   overflow: hidden;
 }
 
@@ -62,7 +62,7 @@ body {
   text-align: center;
   gap: 4px;
   padding: 10px 14px;
-  background: linear-gradient(180deg, rgba(7, 12, 24, 0.06) 0%, rgba(7, 12, 24, 0.16) 100%);
+  background: transparent;
 }
 
 .home-hero-copy h1 {
@@ -93,16 +93,16 @@ body {
 }
 
 .app-graphic-chip {
-  width: 130px;
-  height: 78px;
+  width: 168px;
+  height: 96px;
   object-fit: contain;
   object-position: center;
   border-radius: 12px;
   border: 1px solid rgba(249, 115, 22, 0.35);
-  background: rgba(15, 23, 42, 0.2);
-  box-shadow: 0 0 16px rgba(249, 115, 22, 0.24);
+  background: transparent;
+  box-shadow: 0 0 12px rgba(249, 115, 22, 0.16);
   opacity: 1;
-  filter: brightness(1.08) contrast(1.1) saturate(1.1);
+  filter: brightness(1.12) contrast(1.15) saturate(1.15);
 }
 
 .app-header-top {
@@ -1339,8 +1339,8 @@ li { margin: 8px 0; line-height: 1.5; }
   }
 
   .app-graphic-chip {
-    width: 106px;
-    height: 64px;
+    width: 132px;
+    height: 76px;
   }
 
   h1 {
