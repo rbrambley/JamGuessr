@@ -188,6 +188,12 @@ class BotPlayer {
     this.context = await this.browser.newContext({ viewport: null });
     this.page = await this.context.newPage();
 
+    this.page.on("popup", popup => {
+      const url = popup.url() || "about:blank";
+      this.log(`closed popup tab: ${url}`);
+      popup.close().catch(() => {});
+    });
+
     this.page.on("console", msg => {
       const text = msg.text();
       if (/error|failed/i.test(text)) {
@@ -274,24 +280,12 @@ class BotPlayer {
       this.lastPlaybackPokeAt = now;
     } else if (now - this.lastPlaybackPokeAt >= PLAYBACK_POKE_COOLDOWN_MS) {
       this.lastPlaybackPokeAt = now;
-      // Some clients never render the unlock button. Poke the player shell/iframe
-      // to satisfy autoplay gesture requirements and kick playback.
-      await this.page.locator(".youtube-player-shell").click({
+      // Some clients never render the unlock button. Trigger a benign user
+      // gesture outside the iframe to avoid opening YouTube popup tabs.
+      await this.page.locator("body").click({
         timeout: 800,
         force: true,
-        position: { x: 36, y: 36 }
-      }).catch(() => {});
-
-      await this.page.locator("#youtube-player").click({
-        timeout: 800,
-        force: true,
-        position: { x: 64, y: 64 }
-      }).catch(() => {});
-
-      await this.page.locator("#youtube-player iframe").first().click({
-        timeout: 800,
-        force: true,
-        position: { x: 72, y: 72 }
+        position: { x: 12, y: 12 }
       }).catch(() => {});
     }
 
