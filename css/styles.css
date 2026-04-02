@@ -85,16 +85,16 @@ body {
 }
 
 .app-graphic-hero {
-  max-height: 122px;
-  object-fit: cover;
-  object-position: center 36%;
+  max-height: none;
+  object-fit: contain;
+  object-position: center;
   opacity: 0.98;
 }
 
 .app-graphic-chip {
   width: 130px;
   height: 78px;
-  object-fit: cover;
+  object-fit: contain;
   object-position: center;
   border-radius: 12px;
   border: 1px solid rgba(249, 115, 22, 0.35);
