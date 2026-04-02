@@ -153,6 +153,7 @@ let lastPlaybackReinforceKey = "";
 let audioUnlocked = false;
 let allSubmissionsUnsub = null;
 let lastAttemptedHostReclaimAt = 0;
+const CLIENT_DESYNC_RECOVERY_COOLDOWN_MS = 12000;
 
 // -- Room listeners ------------------------------------------------------------
 
@@ -526,6 +527,7 @@ async function guardClientPlaybackSync(room) {
 
   try {
     const playerState = ytPlayer.getPlayerState();
+    const activeVideoId = ytPlayer.getVideoData?.()?.video_id || "";
     const actualSec = Math.max(0, Number(ytPlayer.getCurrentTime?.() || 0));
     const expectedSec = playback.status === "paused"
       ? Math.max(0, Number(playback.pausedAtSec || 0))
@@ -534,6 +536,15 @@ async function guardClientPlaybackSync(room) {
     const shouldBePlaying = playback.status !== "paused";
     const isPlayingState = window.YT && (playerState === YT.PlayerState.PLAYING || playerState === YT.PlayerState.BUFFERING);
     const isPausedState = window.YT && playerState === YT.PlayerState.PAUSED;
+    const sameExpectedVideo = activeVideoId === playback.videoId;
+    const recentlyAppliedPlayback = (Date.now() - lastPlaybackApplyAttemptAt) < CLIENT_DESYNC_RECOVERY_COOLDOWN_MS;
+
+    // Ads/transient YouTube states can look like a pause/desync even though the
+    // right video is already mounted. Avoid repeatedly reloading the same video
+    // during that window, which can trap clients in an ad refresh loop.
+    if (shouldBePlaying && !isPlayingState && sameExpectedVideo && recentlyAppliedPlayback) {
+      return;
+    }
 
     if ((shouldBePlaying && (!isPlayingState || driftSec > 2.5)) || (!shouldBePlaying && !isPausedState)) {
       await applyRoomPlayback(room);
@@ -715,11 +726,8 @@ async function applyRoomPlayback(room) {
       setTimeout(() => {
         try {
           const activeVideoId = player.getVideoData?.()?.video_id || "";
-          const playerState = player.getPlayerState?.();
-          const isUnstarted = !!(window.YT && playerState === YT.PlayerState.UNSTARTED);
-          const isCued = !!(window.YT && playerState === YT.PlayerState.CUED);
           const missingExpectedVideo = activeVideoId !== playback.videoId;
-          const needsRecovery = missingExpectedVideo || (status === "playing" && (isUnstarted || isCued));
+          const needsRecovery = missingExpectedVideo;
 
           if (!needsRecovery) return;
 
