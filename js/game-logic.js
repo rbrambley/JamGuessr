@@ -128,6 +128,26 @@ const YOUTUBE_SEARCH_COOLDOWN_MS = 1000;
 const YOUTUBE_SEARCH_MAX_RESULTS = 5;
 const youtubeSearchCache = new Map();
 let lastYouTubeSearchAt = 0;
+const EMERGENCY_FALLBACK_SONGS = [
+  { title: "Blinding Lights", artist: "The Weeknd", youtubeVideoId: "4NRXx6U8ABQ" },
+  { title: "Levitating", artist: "Dua Lipa", youtubeVideoId: "TUVcZfQe-Kw" },
+  { title: "Bad Guy", artist: "Billie Eilish", youtubeVideoId: "DyDfgMOUjCI" },
+  { title: "Shape of You", artist: "Ed Sheeran", youtubeVideoId: "JGwWNGJdvx8" },
+  { title: "Bohemian Rhapsody", artist: "Queen", youtubeVideoId: "fJ9rUzIMcZQ" },
+  { title: "Don't Stop Believin'", artist: "Journey", youtubeVideoId: "1k8craCGpgs" },
+  { title: "Livin' on a Prayer", artist: "Bon Jovi", youtubeVideoId: "lDK9QqIzhwk" },
+  { title: "Numb", artist: "Linkin Park", youtubeVideoId: "kXYiU_JCYtU" },
+  { title: "Mr. Brightside", artist: "The Killers", youtubeVideoId: "gGdGFtwCNBE" },
+  { title: "HUMBLE.", artist: "Kendrick Lamar", youtubeVideoId: "tvTRZJ-4EyI" },
+  { title: "Still D.R.E.", artist: "Dr. Dre", youtubeVideoId: "_CL6n0FJZpk" },
+  { title: "One More Time", artist: "Daft Punk", youtubeVideoId: "FGBhQbmPwH8" },
+  { title: "Summer", artist: "Calvin Harris", youtubeVideoId: "ebXbLfLACGM" },
+  { title: "Levels", artist: "Avicii", youtubeVideoId: "_ovdm2yX4MA" },
+  { title: "Take On Me", artist: "a-ha", youtubeVideoId: "djV11Xbc914" },
+  { title: "Africa", artist: "Toto", youtubeVideoId: "FTQbiNvZqaY" },
+  { title: "Dancing Queen", artist: "ABBA", youtubeVideoId: "xFrGuyw1V8s" },
+  { title: "Dreams", artist: "Fleetwood Mac", youtubeVideoId: "mrZRURcb1cM" }
+];
 let didRedirectAfterRemoval = false;
 let hasLoadedPlayersSnapshot = false;
 let hasConfirmedPlayerPresence = false;
@@ -303,6 +323,83 @@ function escapeHtml(value) {
 
 function normalizeYouTubeSearchQuery(query) {
   return (query || "").trim().toLowerCase().replace(/\s+/g, " ");
+}
+
+function extractYouTubeVideoIdFromInput(input) {
+  const raw = String(input || "").trim();
+  if (!raw) return "";
+
+  // Accept direct 11-char IDs for quick manual fallback when API quota is exhausted.
+  if (/^[A-Za-z0-9_-]{11}$/.test(raw)) {
+    return raw;
+  }
+
+  try {
+    const parsed = new URL(raw);
+    const host = (parsed.hostname || "").toLowerCase();
+
+    if (host.includes("youtube.com")) {
+      if (parsed.pathname === "/watch") {
+        const id = parsed.searchParams.get("v") || "";
+        return /^[A-Za-z0-9_-]{11}$/.test(id) ? id : "";
+      }
+
+      if (parsed.pathname.startsWith("/shorts/")) {
+        const id = parsed.pathname.split("/").filter(Boolean)[1] || "";
+        return /^[A-Za-z0-9_-]{11}$/.test(id) ? id : "";
+      }
+    }
+
+    if (host === "youtu.be") {
+      const id = parsed.pathname.replace(/^\/+/, "").split("/")[0] || "";
+      return /^[A-Za-z0-9_-]{11}$/.test(id) ? id : "";
+    }
+  } catch (e) {
+    // Not a URL — caller handles as normal text query.
+  }
+
+  return "";
+}
+
+function buildManualSongSelectionFromVideoId(videoId) {
+  return {
+    youtubeVideoId: videoId,
+    youtubeUrl: `https://www.youtube.com/watch?v=${videoId}`,
+    title: `YouTube video (${videoId})`,
+    artist: "Manual link",
+    thumbnailUrl: `https://i.ytimg.com/vi/${videoId}/hqdefault.jpg`
+  };
+}
+
+function searchEmergencyFallbackSongs(query, maxResults = YOUTUBE_SEARCH_MAX_RESULTS) {
+  const normalized = normalizeYouTubeSearchQuery(query);
+  if (!normalized) return [];
+
+  const tokens = normalized.split(" ").filter(Boolean);
+  if (tokens.length === 0) return [];
+
+  const scored = EMERGENCY_FALLBACK_SONGS
+    .map(song => {
+      const haystack = normalizeYouTubeSearchQuery(`${song.title} ${song.artist}`);
+      let score = 0;
+      tokens.forEach(token => {
+        if (haystack.includes(token)) score += 2;
+      });
+      if (haystack.includes(normalized)) score += 3;
+      return { song, score };
+    })
+    .filter(entry => entry.score > 0)
+    .sort((a, b) => b.score - a.score)
+    .slice(0, maxResults)
+    .map(entry => ({
+      youtubeVideoId: entry.song.youtubeVideoId,
+      youtubeUrl: `https://www.youtube.com/watch?v=${entry.song.youtubeVideoId}`,
+      title: entry.song.title,
+      artist: entry.song.artist,
+      thumbnailUrl: `https://i.ytimg.com/vi/${entry.song.youtubeVideoId}/hqdefault.jpg`
+    }));
+
+  return scored;
 }
 
 function buildSongDisplayCard(song, options = {}) {
@@ -1221,6 +1318,15 @@ function renderSongInputs(currentRound, maxRounds) {
   async function runSearch() {
     const q = queryEl?.value.trim();
     if (!q) return;
+
+    const manualVideoId = extractYouTubeVideoIdFromInput(q);
+    if (manualVideoId) {
+      pickingSearchResults = [buildManualSongSelectionFromVideoId(manualVideoId)];
+      youtubeSearchCache.set(normalizeYouTubeSearchQuery(q), pickingSearchResults);
+      renderSearchResults();
+      return;
+    }
+
     if (q.length < YOUTUBE_SEARCH_MIN_QUERY_LENGTH) {
       alert(`Search must be at least ${YOUTUBE_SEARCH_MIN_QUERY_LENGTH} characters.`);
       return;
@@ -1298,7 +1404,21 @@ function renderSongInputs(currentRound, maxRounds) {
         alert("No results found. Try a different search.");
       }
     } catch (e) {
-      alert(e.message || "YouTube search error");
+      const message = e?.message || "YouTube search error";
+      const isQuotaError = /quota|daily limit|quotaExceeded|get started/i.test(message);
+      if (isQuotaError) {
+        const fallbackResults = searchEmergencyFallbackSongs(q);
+        if (fallbackResults.length > 0) {
+          pickingSearchResults = fallbackResults;
+          youtubeSearchCache.set(normalizedQuery, pickingSearchResults);
+          renderSearchResults();
+          alert("YouTube search quota is exhausted right now. Showing in-game fallback song matches so the round can continue.");
+        } else {
+          alert("YouTube search quota is exhausted right now, and no fallback matches were found for that query. Try searching by artist/title keywords.");
+        }
+      } else {
+        alert(message);
+      }
     } finally {
       searchBtn.disabled = false;
       searchBtn.textContent = "Search";
