@@ -154,6 +154,7 @@ let hasLoadedPlayersSnapshot = false;
 let hasConfirmedPlayerPresence = false;
 let hostAutoplayEnabled = false;
 let autoplayAdvancePending = false;
+let autoplaySyncedKey = "";
 
 let revealRenderInFlight = false;
 let revealScoresAppliedRound = -1;
@@ -1905,6 +1906,13 @@ function renderHostPlayingControls(room, isHost) {
 
   if (!room.allSongsPlayed) {
     const currentSong = roundSongs[room.currentSongIndex];
+
+    // Auto-trigger playback at round start when autoplay was already enabled
+    const autoplaySongKey = `${room.currentRound}:${room.currentSongIndex}`;
+    if (hostAutoplayEnabled && currentSong?.youtubeVideoId && !hasStartedPlaybackForCurrentSong(room) && autoplaySyncedKey !== autoplaySongKey) {
+      autoplaySyncedKey = autoplaySongKey;
+      syncSongForEveryone(room, room.currentSongIndex, 2500).catch(e => console.error("Autoplay round-start sync failed:", e));
+    }
 
     const row = document.createElement("div");
     row.className = "host-inline-controls-row";
