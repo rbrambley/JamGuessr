@@ -1,7 +1,6 @@
 # JamGuessr Todo List
 
 ## Bugs
-- [ ] **Remove lines above and below the turntables graphic** — decorative border lines flanking the DJ kit image should be removed.
 
 ## Features
 - [ ] **Dedicated playback device mode** — special "screen" join role: plays audio/video only, no guessing UI. Intended for TV/Chromecast in-person scenarios where players watch together but guess on their own phones.

@@ -49,7 +49,4 @@
   <rect x="950" y="476" width="20" height="152" rx="10" fill="#94A3B8" fill-opacity="0.44"/>
   <rect x="1028" y="430" width="20" height="198" rx="10" fill="#94A3B8" fill-opacity="0.44"/>
 
-  <!-- Ambient wave lines -->
-  <path d="M80 155C410 95 650 175 930 150C1210 125 1500 85 1840 130" stroke="#F97316" stroke-opacity="0.72" stroke-width="3"/>
-  <path d="M60 900C420 845 820 930 1180 878C1460 838 1700 870 1870 842" stroke="#FBBF24" stroke-opacity="0.68" stroke-width="3"/>
 </svg>
