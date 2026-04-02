@@ -115,6 +115,7 @@ let lastPickingRound = null;
 let ytApiPromise = null;
 let ytPlayer = null;
 let ytPlayerReady = false;
+let ytPlayerInitPromise = null;
 let playbackTimer = null;
 let lastAppliedPlaybackVersion = null;
 let lastPlaybackApplyAttemptAt = 0;
@@ -550,10 +551,15 @@ async function ensureYouTubePlayer() {
   if (!mount) return null;
   if (ytPlayer && ytPlayerReady) return ytPlayer;
 
-  await loadYouTubeApi();
+  // Guard against concurrent calls: if initialization is already in flight,
+  // wait for it rather than spawning a second YT.Player on the same element.
+  if (ytPlayerInitPromise) return ytPlayerInitPromise;
 
-  await new Promise(resolve => {
-    ytPlayer = new YT.Player("youtube-player", {
+  ytPlayerInitPromise = (async () => {
+    await loadYouTubeApi();
+
+    await new Promise(resolve => {
+      ytPlayer = new YT.Player("youtube-player", {
       width: "100%",
       height: "100%",
       playerVars: {
@@ -598,9 +604,12 @@ async function ensureYouTubePlayer() {
         }
       }
     });
-  });
 
-  return ytPlayer;
+    ytPlayerInitPromise = null;
+    return ytPlayer;
+  })();
+
+  return ytPlayerInitPromise;
 }
 
 function isCurrentPlayerHost() {
