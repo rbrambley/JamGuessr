@@ -619,8 +619,21 @@ async function applyRoomPlayback(room) {
   }
 
   const samePlaybackVersion = playback.version && playback.version === lastAppliedPlaybackVersion;
-  if (samePlaybackVersion && (Date.now() - lastPlaybackApplyAttemptAt) < 2500) {
-    return;
+  if (samePlaybackVersion && (Date.now() - lastPlaybackApplyAttemptAt) < 2500 && ytPlayer && ytPlayerReady) {
+    let activeVideoId = "";
+    let playerState = null;
+    try {
+      activeVideoId = ytPlayer.getVideoData?.()?.video_id || "";
+      playerState = ytPlayer.getPlayerState?.();
+    } catch (e) {
+      // If probing player state fails, fall through and re-apply playback.
+    }
+
+    const isUnstarted = !!(window.YT && playerState === YT.PlayerState.UNSTARTED);
+    const shouldForceRecovery = activeVideoId !== playback.videoId || isUnstarted;
+    if (!shouldForceRecovery) {
+      return;
+    }
   }
 
   const player = await ensureYouTubePlayer();
@@ -696,6 +709,35 @@ async function applyRoomPlayback(room) {
       hardStoppedVideoId = null;
       hardStoppedAtSec = 0;
       if (!isCurrentPlayerHost()) showAudioUnlockButton(player);
+
+      // Recovery path for rare clients that remain in an empty/unstarted iframe
+      // after a sync pulse (observed in bot sessions under join/playback race).
+      setTimeout(() => {
+        try {
+          const activeVideoId = player.getVideoData?.()?.video_id || "";
+          const playerState = player.getPlayerState?.();
+          const isUnstarted = !!(window.YT && playerState === YT.PlayerState.UNSTARTED);
+          const isCued = !!(window.YT && playerState === YT.PlayerState.CUED);
+          const missingExpectedVideo = activeVideoId !== playback.videoId;
+          const needsRecovery = missingExpectedVideo || (status === "playing" && (isUnstarted || isCued));
+
+          if (!needsRecovery) return;
+
+          if (!isCurrentPlayerHost() && !audioUnlocked) player.mute();
+          player.loadVideoById({
+            videoId: playback.videoId,
+            startSeconds: elapsedSec
+          });
+
+          if (status === "paused") {
+            player.pauseVideo();
+          } else {
+            player.playVideo();
+          }
+        } catch (e) {
+          // Best-effort recovery only.
+        }
+      }, 1400);
     } catch (e) {
       if (statusEl) statusEl.textContent = "Playback blocked. Click player to start audio.";
     }
