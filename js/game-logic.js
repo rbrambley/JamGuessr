@@ -178,6 +178,8 @@ let lastAttemptedHostReclaimAt = 0;
 let screenModeEnteredFullscreen = false;
 let screenModeFullscreenAttemptedSongKey = "";
 let lastClientGuardCorrectionAt = 0;
+let lastHostPlaybackHeartbeatBroadcastAt = 0;
+let lastRequestedPlaybackSignature = "";
 const CLIENT_DESYNC_RECOVERY_COOLDOWN_MS = 12000;
 const PLAYBACK_TELEMETRY_MAX_EVENTS = 120;
 let playbackTelemetryState = "idle";
@@ -199,6 +201,17 @@ function getTelemetrySongKey(room = currentRoom) {
   const baseSongIndex = playback?.songIndex ?? room.currentSongIndex ?? -1;
   const videoId = playback?.videoId || lastLoadedVideoIdForPlayback || "none";
   return `${baseRound}:${baseSongIndex}:${videoId}`;
+}
+
+function getPlaybackSignature(playback) {
+  if (!playback) return "none";
+  return [
+    playback.videoId || "none",
+    playback.round ?? -1,
+    playback.songIndex ?? -1,
+    playback.status || "unknown",
+    playback.version ?? 0
+  ].join("|");
 }
 
 function logPlaybackTelemetry(nextState, details = {}) {
@@ -311,6 +324,7 @@ function cleanupLocalGameState() {
   exitScreenFullscreenIfNeeded();
   unlockLandscapeIfSupported();
   screenModeFullscreenAttemptedSongKey = "";
+  lastRequestedPlaybackSignature = "";
   hardStoppedVideoId = null;
   hardStoppedAtSec = 0;
   lastLoadedVideoIdForPlayback = null;
@@ -755,6 +769,18 @@ async function broadcastHostPlaybackState(force = false) {
   }
 
   const status = mapYouTubeStateToPlaybackStatus(playerState);
+  const now = Date.now();
+
+  // Heartbeat updates are useful as a safety net, but pushing a new playback
+  // version every 3s causes all clients to process unnecessary sync pulses.
+  // Throttle periodic "playing" heartbeats aggressively.
+  if (!force && status === "playing") {
+    const HEARTBEAT_BROADCAST_MIN_MS = 12000;
+    if ((now - lastHostPlaybackHeartbeatBroadcastAt) < HEARTBEAT_BROADCAST_MIN_MS) {
+      return;
+    }
+    lastHostPlaybackHeartbeatBroadcastAt = now;
+  }
 
   // Don't immediately propagate a "paused" state from the periodic heartbeat —
   // YouTube pre/mid-roll ads make the host player appear paused even though
@@ -779,8 +805,24 @@ async function broadcastHostPlaybackState(force = false) {
   }
 
   const startAtMs = status === "playing"
-    ? Date.now() - Math.floor(currentSec * 1000)
-    : Date.now();
+    ? now - Math.floor(currentSec * 1000)
+    : now;
+
+  const existingPlayback = currentRoom?.playback || null;
+  if (!force && status === "playing" && existingPlayback) {
+    const sameTrack =
+      existingPlayback.videoId === song.youtubeVideoId &&
+      existingPlayback.round === currentRoom.currentRound &&
+      existingPlayback.songIndex === currentRoom.currentSongIndex;
+    const sameState = existingPlayback.status === "playing";
+    if (sameTrack && sameState) {
+      const existingExpectedSec = Math.max(0, (now - (existingPlayback.startAtMs || now)) / 1000);
+      const hostVsExistingDriftSec = Math.abs(currentSec - existingExpectedSec);
+      if (hostVsExistingDriftSec < 1.2) {
+        return;
+      }
+    }
+  }
 
   hostPlaybackSyncInFlight = true;
   try {
@@ -815,6 +857,8 @@ function updateHostPlaybackSyncLoop(room, isHost) {
       clearTimeout(pausedHeartbeatDebounceTimer);
       pausedHeartbeatDebounceTimer = null;
     }
+    lastHostPlaybackHeartbeatBroadcastAt = 0;
+    lastRequestedPlaybackSignature = "";
     return;
   }
 
@@ -1006,6 +1050,30 @@ async function applyRoomPlayback(room) {
 
   const player = await ensureYouTubePlayer();
   if (!player) return;
+
+  // If we're already on the expected video and in the right state with only
+  // minor drift, skip re-applying playback commands to avoid waking the YT HUD.
+  try {
+    const activeVideoId = player.getVideoData?.()?.video_id || "";
+    const isExpectedVideo = activeVideoId === playback.videoId;
+    const playerState = player.getPlayerState?.();
+    const isPlayingState = !!(window.YT && (playerState === YT.PlayerState.PLAYING || playerState === YT.PlayerState.BUFFERING));
+    const isPausedState = !!(window.YT && playerState === YT.PlayerState.PAUSED);
+    const expectedSec = playback.status === "paused"
+      ? Math.max(0, Number(playback.pausedAtSec || 0))
+      : Math.max(0, (Date.now() - (playback.startAtMs || Date.now())) / 1000);
+    const actualSec = Math.max(0, Number(player.getCurrentTime?.() || 0));
+    const driftSec = Math.abs(actualSec - expectedSec);
+    const shouldBePlaying = playback.status !== "paused";
+    const isCorrectState = shouldBePlaying ? isPlayingState : isPausedState;
+    const DRIFT_NOOP_THRESHOLD_SEC = shouldBePlaying ? 1.6 : 0.6;
+
+    if (isExpectedVideo && isCorrectState && driftSec <= DRIFT_NOOP_THRESHOLD_SEC) {
+      return;
+    }
+  } catch (e) {
+    // Probe failure falls through to normal playback apply path.
+  }
 
   clearPlaybackTimer();
   lastPlaybackApplyAttemptAt = Date.now();
@@ -1293,6 +1361,7 @@ function handleRoomUpdate(room) {
     exitScreenFullscreenIfNeeded();
     unlockLandscapeIfSupported();
     screenModeFullscreenAttemptedSongKey = "";
+    lastRequestedPlaybackSignature = "";
     playbackTelemetryState = "idle";
     playbackTelemetrySongKey = "";
   }
@@ -1902,7 +1971,11 @@ function renderPlayingView(room, isHost) {
   // Host controls their own player directly — applying their own Firestore
   // broadcast would re-cue the video every 3s and interrupt playback.
   if (!isHost && shouldRenderPlayback) {
-    applyRoomPlayback(room);
+    const playbackSig = getPlaybackSignature(room?.playback || null);
+    if (playbackSig !== lastRequestedPlaybackSignature) {
+      lastRequestedPlaybackSignature = playbackSig;
+      applyRoomPlayback(room);
+    }
   }
 }
 
