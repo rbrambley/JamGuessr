@@ -1,0 +1,57 @@
+<svg width="512" height="512" viewBox="0 0 512 512" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <radialGradient id="glowL" cx="0.3" cy="0.55" r="0.55">
+      <stop offset="0%" stop-color="#f97316" stop-opacity="0.35"/>
+      <stop offset="100%" stop-color="#f97316" stop-opacity="0"/>
+    </radialGradient>
+    <radialGradient id="glowR" cx="0.7" cy="0.55" r="0.55">
+      <stop offset="0%" stop-color="#fbbf24" stop-opacity="0.3"/>
+      <stop offset="100%" stop-color="#fbbf24" stop-opacity="0"/>
+    </radialGradient>
+  </defs>
+
+  <!-- Background -->
+  <rect width="512" height="512" rx="88" fill="#0f172a"/>
+  <rect width="512" height="512" rx="88" fill="url(#glowL)"/>
+  <rect width="512" height="512" rx="88" fill="url(#glowR)"/>
+
+  <!-- App name -->
+  <text x="256" y="90" text-anchor="middle" font-family="Arial Black, Arial, sans-serif" font-weight="900" font-size="56" letter-spacing="-1" fill="#f97316">JamGuessr</text>
+
+  <!-- Left turntable -->
+  <circle cx="138" cy="300" r="108" stroke="#e2e8f0" stroke-opacity="0.35" stroke-width="3" fill="none"/>
+  <circle cx="138" cy="300" r="78" stroke="#f97316" stroke-opacity="0.9" stroke-width="3.5" fill="none"/>
+  <circle cx="138" cy="300" r="50" stroke="#f97316" stroke-opacity="0.5" stroke-width="2" fill="none"/>
+  <circle cx="138" cy="300" r="26" fill="#1e293b" stroke="#f97316" stroke-opacity="0.7" stroke-width="2"/>
+  <circle cx="138" cy="300" r="6" fill="#f8fafc"/>
+
+  <!-- Right turntable -->
+  <circle cx="374" cy="300" r="108" stroke="#e2e8f0" stroke-opacity="0.35" stroke-width="3" fill="none"/>
+  <circle cx="374" cy="300" r="78" stroke="#fbbf24" stroke-opacity="0.9" stroke-width="3.5" fill="none"/>
+  <circle cx="374" cy="300" r="50" stroke="#fbbf24" stroke-opacity="0.5" stroke-width="2" fill="none"/>
+  <circle cx="374" cy="300" r="26" fill="#1e293b" stroke="#fbbf24" stroke-opacity="0.7" stroke-width="2"/>
+  <circle cx="374" cy="300" r="6" fill="#f8fafc"/>
+
+  <!-- Mixer body -->
+  <rect x="210" y="155" width="92" height="230" rx="14" fill="#1e293b" stroke="#94a3b8" stroke-opacity="0.7" stroke-width="2.5"/>
+  <!-- Mixer knobs row 1 -->
+  <circle cx="237" cy="190" r="9" stroke="#f8fafc" stroke-opacity="0.7" stroke-width="2" fill="#0f172a"/>
+  <circle cx="265" cy="190" r="9" stroke="#f8fafc" stroke-opacity="0.7" stroke-width="2" fill="#0f172a"/>
+  <!-- Mixer knobs row 2 -->
+  <circle cx="237" cy="222" r="9" stroke="#f8fafc" stroke-opacity="0.5" stroke-width="2" fill="#0f172a"/>
+  <circle cx="265" cy="222" r="9" stroke="#f8fafc" stroke-opacity="0.5" stroke-width="2" fill="#0f172a"/>
+  <!-- Fader tracks -->
+  <rect x="230" y="248" width="10" height="100" rx="5" fill="#94a3b8" fill-opacity="0.3"/>
+  <rect x="262" y="248" width="10" height="100" rx="5" fill="#94a3b8" fill-opacity="0.3"/>
+  <!-- Fader handles -->
+  <rect x="226" y="278" width="18" height="22" rx="4" fill="#f97316" fill-opacity="0.85"/>
+  <rect x="258" y="296" width="18" height="22" rx="4" fill="#fbbf24" fill-opacity="0.85"/>
+
+  <!-- Tonearm left -->
+  <line x1="224" y1="210" x2="180" y2="248" stroke="#94a3b8" stroke-opacity="0.6" stroke-width="2.5" stroke-linecap="round"/>
+  <!-- Tonearm right -->
+  <line x1="288" y1="210" x2="332" y2="248" stroke="#94a3b8" stroke-opacity="0.6" stroke-width="2.5" stroke-linecap="round"/>
+
+  <!-- Bottom label -->
+  <text x="256" y="470" text-anchor="middle" font-family="Arial, sans-serif" font-weight="600" font-size="28" fill="#94a3b8" fill-opacity="0.7" letter-spacing="3">MUSIC QUIZ</text>
+</svg>
