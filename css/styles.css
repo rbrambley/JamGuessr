@@ -320,6 +320,39 @@ li { margin: 8px 0; line-height: 1.5; }
   margin-bottom: 10px;
 }
 
+.yt-session-helper {
+  color: #a7b6d9;
+  font-size: 0.82rem;
+  line-height: 1.35;
+  margin-top: 10px;
+}
+
+.yt-session-helper-group {
+  margin-top: 10px;
+}
+
+.yt-session-helper-group .yt-session-helper {
+  margin-top: 4px;
+}
+
+.yt-session-helper-group .yt-session-helper:first-child {
+  margin-top: 0;
+}
+
+.yt-session-helper-mobile {
+  display: none;
+}
+
+@media (max-width: 520px) {
+  .yt-session-helper-full {
+    display: none;
+  }
+
+  .yt-session-helper-mobile {
+    display: block;
+  }
+}
+
 #lobby-waiting-text {
   color: #d3deff;
   margin: 8px 0 10px;
