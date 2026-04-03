@@ -7,6 +7,14 @@
 ## Core Features
 - [ ] **Dedicated playback device mode** — special "screen" join role: plays audio/video only, no guessing UI. Intended for TV/Chromecast in-person scenarios where players watch together but guess on their own phones.
 
+- [ ] **Roadtrip safe driver mode** *(Priority: Medium)* — driver joins with a low-distraction "car screen" flow and is forced into playback-only screen role (no guessing). Driver device should be the only audio output target (Bluetooth/CarPlay/Android Auto). Host controls must stay with a passenger.
+	- Acceptance criteria:
+	- Driver join flow is low-distraction (max 2 taps after room code entry).
+	- Driver device in this mode cannot submit guesses or access host controls.
+	- Host cannot start a game unless host role is on a non-driver/passenger device.
+	- Playback-only driver screen shows only essential controls/status (connect, playing, volume guidance).
+	- If driver disconnects, room falls back safely to passenger playback device selection.
+
 - [ ] **Unique player assignment per round** — during song assignment, do not allow selecting the same player for every song in a round. Enforce a one-to-one mapping so each song is assigned to a different player within that round.
 
 - [ ] **Party mode** — no rounds, no scoring, just a shared collaborative song queue anyone can add to. Basically a jukebox mode alongside the existing Game mode.
@@ -67,6 +75,7 @@
 
 ### Medium
 - [ ] Fix player video playback stopping
+- [ ] Roadtrip safe driver mode
 - [ ] Daily challenge seed
 - [ ] Steal window mechanic
 - [ ] Alternating categories
