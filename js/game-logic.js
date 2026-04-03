@@ -756,6 +756,45 @@ function getPerfectRoundPlayerIds(roundNumber) {
   return perfectPlayerIds;
 }
 
+function getPerkBadgeText(player, room) {
+  if (!player?.activePerkType || !room) return "";
+
+  const perkRound = Number(player.activePerkRound);
+  const currentRound = Number(room.currentRound);
+
+  if (perkRound === currentRound) {
+    return player.activePerkType === "multiplier" ? "x1.5 ACTIVE" : "HALVE ACTIVE";
+  }
+
+  if (room.status === "reveal" && perkRound === currentRound + 1) {
+    return player.activePerkType === "multiplier" ? "x1.5 QUEUED" : "HALVE QUEUED";
+  }
+
+  return "";
+}
+
+function getCurrentPlayerPerkStatus(room) {
+  const me = players.find(player => player.id === currentPlayerId);
+  if (!me?.activePerkType || !room) return "";
+
+  const perkRound = Number(me.activePerkRound);
+  const currentRound = Number(room.currentRound);
+
+  if (perkRound === currentRound) {
+    return me.activePerkType === "multiplier"
+      ? "Your perfect-round perk is active: 1.5x points this round."
+      : "Your perfect-round perk is active: opponent halving effect this round.";
+  }
+
+  if (room.status === "reveal" && perkRound === currentRound + 1) {
+    return me.activePerkType === "multiplier"
+      ? "Reward saved: 1.5x points next round."
+      : "Reward saved: halve-opponent effect next round.";
+  }
+
+  return "";
+}
+
 function isCurrentPlayerScreen() {
   const me = players.find(p => p.id === currentPlayerId);
   return isScreenRole(me);
@@ -1621,7 +1660,8 @@ function renderMetaPanel(room) {
       }
     } else {
       pointsEl.classList.remove("meta-status-compact");
-      pointsEl.textContent = "";
+      const perkStatus = getCurrentPlayerPerkStatus(room);
+      pointsEl.textContent = perkStatus;
     }
   }
 
@@ -1664,6 +1704,14 @@ function renderMetaPanel(room) {
 
     btn.appendChild(score);
     btn.appendChild(name);
+
+    const perkBadgeText = getPerkBadgeText(p, room);
+    if (perkBadgeText) {
+      const perkBadge = document.createElement("span");
+      perkBadge.className = "player-pill-perk";
+      perkBadge.textContent = perkBadgeText;
+      btn.appendChild(perkBadge);
+    }
 
     if (roundDeltas.size > 0) {
       const delta = roundDeltas.get(p.id) || 0;
@@ -2525,6 +2573,10 @@ function renderPerfectRoundPerkChooser(container, room) {
   copy.textContent = "You got every guess right. Choose one perk for next round.";
   panel.appendChild(copy);
 
+  const status = document.createElement("div");
+  status.className = "guess-progress";
+  panel.appendChild(status);
+
   const alreadyChosen =
     Number(me.activePerkRound) === Number(room.currentRound + 1) &&
     Number(me.lastPerkSourceRound) === Number(room.currentRound) &&
@@ -2574,28 +2626,46 @@ function renderPerfectRoundPerkChooser(container, room) {
     });
   };
 
+  const applySelectedButtonState = (selectedButton, allButtons) => {
+    allButtons.forEach(btn => btn.classList.remove("compact-toggle-enabled"));
+    selectedButton.classList.add("compact-toggle-enabled");
+  };
+
   multiplierBtn.onclick = async () => {
+    applySelectedButtonState(multiplierBtn, [multiplierBtn, halveBtn]);
+    status.textContent = "Saving 1.5x multiplier...";
     try {
       setBusy(true);
       await setPerfectRoundPerk(roomId, currentPlayerId, "multiplier", null, room.currentRound);
+      multiplierBtn.textContent = "1.5x Selected";
+      status.textContent = "Saved: 1.5x multiplier for next round.";
     } catch (e) {
       alert("Could not save reward: " + (e?.message || "unknown error"));
+      status.textContent = "";
       setBusy(false);
     }
   };
 
   const targetCandidates = getGuessablePlayers().filter(player => player.id !== currentPlayerId);
+  const targetButtons = [];
   targetCandidates.forEach(target => {
     const btn = document.createElement("button");
     btn.type = "button";
     btn.className = "secondary-btn compact-control-btn";
     btn.textContent = target.name;
+    targetButtons.push(btn);
     btn.onclick = async () => {
+      applySelectedButtonState(halveBtn, [multiplierBtn, halveBtn]);
+      applySelectedButtonState(btn, targetButtons);
+      status.textContent = `Saving halve-opponent perk targeting ${target.name}...`;
       try {
         setBusy(true);
         await setPerfectRoundPerk(roomId, currentPlayerId, "halve-opponent", target.id, room.currentRound);
+        halveBtn.textContent = "Halve Selected";
+        status.textContent = `Saved: ${target.name}'s points will be halved next round.`;
       } catch (e) {
         alert("Could not save reward: " + (e?.message || "unknown error"));
+        status.textContent = "";
         setBusy(false);
       }
     };
