@@ -83,13 +83,14 @@
 
 ### Next Session Plan (Native Handoff)
 - [ ] **[45m] Room schema + defaults** — add `playbackMode`, `playbackState`, and mode-safe defaults in room create/reset lifecycle.
-- [ ] **[45m] Host mode picker UI** — add host-only mode selector (Embed vs Native Handoff) in setup/lobby and persist to room.
 - [ ] **[90m] Playing view branching** — split render path by `playbackMode`; keep existing embed renderer untouched for `embed`.
 - [ ] **[120m] Host native control panel** — add host buttons (`Open App`, `Started`, `Pause`, `Resume`, `Next`) that write canonical playback phase/state.
 - [ ] **[60m] Player native status UI** — show song metadata + host status banner/timers in native mode (no iframe dependency).
 - [ ] **[45m] Guess flow parity check** — confirm native mode uses existing guess submit/validation/reveal with no scoring regressions.
 - [ ] **[60m] Reconnect + fallback handling** — if host disconnects/rejoins, preserve phase state and recover UI safely.
 - [ ] **[45m] QA matrix run** — verify host/player/screen roles across both modes for one full game cycle.
+- [ ] **[45m] Host mode picker UI** — add host-only mode selector (Embed vs Native Handoff) in setup/lobby and persist to room.
+- [ ] **[30m] Default mode flip for new rooms** — set `native_handoff` as the default `playbackMode` on room creation while keeping a temporary fallback flag for existing embed rooms.
 
 ### Medium
 - [ ] Fix player video playback stopping
