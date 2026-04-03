@@ -21,6 +21,14 @@
 
 - [ ] **Playlist export** — end-of-game option to download all played songs (title, artist, YouTube URL) as a file (CSV, TXT, or similar).
 
+- [ ] **Native app handoff mode (additive playback mode)** *(Priority: Medium)* — keep current gameplay/scoring flow, but allow host-driven playback outside embedded YouTube with Firestore-synced phase/state.
+	- Acceptance criteria:
+	- Room supports `playbackMode` (`embed` | `native_handoff`) without breaking existing embed flow.
+	- Host can advance phases (`pending`, `launching`, `ready`, `playing`, `paused`, `ended`) and all clients render consistent status.
+	- In native mode, players still submit guesses using the same round/song metadata flow.
+	- If host exits native controls mid-round, room safely falls back to metadata status without client crashes.
+	- Existing scoring, reveal, and round transitions remain unchanged.
+
 ## Single Player Modes
 
 - [ ] **Daily challenge seed** *(Priority: Medium)* — one shared daily playlist with global leaderboard and one-attempt scoring.
@@ -52,7 +60,7 @@
 
 ## Visual and UX Enhancements
 
-- [ ] **Round-end score celebrations** *(Priority: Medium)* — faster, more exciting score updates; winner gets celebration emoji + winner-only event, lowest scorer gets thumbs-down emoji + low-score-only event.
+- [x] **Round-end score celebrations** *(Priority: Medium)* — faster, more exciting score updates; winner gets celebration emoji + winner-only event, lowest scorer gets thumbs-down emoji + low-score-only event.
 
 ## Priority Buckets
 
@@ -73,6 +81,16 @@
 - [ ] **[120m] Daily challenge seed follow-up** — implement deterministic date-based song selection after streak mode is stable.
 - [ ] **[120m] Song pool source - phase 2 automation** — schedule ingestion/validation job (nightly) with dedupe + embeddability checks.
 
+### Next Session Plan (Native Handoff)
+- [ ] **[45m] Room schema + defaults** — add `playbackMode`, `playbackState`, and mode-safe defaults in room create/reset lifecycle.
+- [ ] **[45m] Host mode picker UI** — add host-only mode selector (Embed vs Native Handoff) in setup/lobby and persist to room.
+- [ ] **[90m] Playing view branching** — split render path by `playbackMode`; keep existing embed renderer untouched for `embed`.
+- [ ] **[120m] Host native control panel** — add host buttons (`Open App`, `Started`, `Pause`, `Resume`, `Next`) that write canonical playback phase/state.
+- [ ] **[60m] Player native status UI** — show song metadata + host status banner/timers in native mode (no iframe dependency).
+- [ ] **[45m] Guess flow parity check** — confirm native mode uses existing guess submit/validation/reveal with no scoring regressions.
+- [ ] **[60m] Reconnect + fallback handling** — if host disconnects/rejoins, preserve phase state and recover UI safely.
+- [ ] **[45m] QA matrix run** — verify host/player/screen roles across both modes for one full game cycle.
+
 ### Medium
 - [ ] Fix player video playback stopping
 - [ ] Roadtrip safe driver mode
@@ -84,7 +102,8 @@
 - [ ] Practice lab mode
 - [ ] Premium status toggle
 - [ ] Premium-host game modifier
-- [ ] Round-end score celebrations
+- [ ] Native app handoff mode
+- [x] Round-end score celebrations
 
 ### Big Ticket
 - [ ] Career progression
