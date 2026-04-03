@@ -36,6 +36,7 @@
 
 ## YouTube Premium Related
 
+- [x] **YouTube session helper messaging** *(Done)* — added sign-in/ad-session helper copy on home + lobby, including condensed mobile text.
 - [ ] **Premium status toggle (host + player profile)** *(Priority: Medium)* — optional self-declared "I have YouTube Premium" setting to tailor gameplay perks without requiring unsupported account detection.
 - [ ] **Premium-host game modifier** *(Priority: Medium)* — if host enables Premium mode, default to longer preview windows and fewer pause gaps between songs to create a smoother ad-free experience.
 - [ ] **Premium player perk tokens** *(Priority: Big Ticket)* — Premium players get one "skip clue wait" token per round (instant reveal of one hint category like decade or genre).
@@ -52,6 +53,17 @@
 - [ ] Streak survival mode
 - [ ] Best-of series duel
 - [ ] Premium lobby theme pack
+
+### Next Session Plan (Single Player)
+- [ ] **[30m] Streak survival mode - MVP scope lock** — confirm guess rule (title OR artist), fixed preview window, and first-miss-ends-run behavior.
+- [ ] **[30m] Song pool source - phase 1** — use controlled JamGuessr catalog for now (avoid fully random playlist pulls in ranked modes).
+- [ ] **[60m] Streak survival mode - gameplay state** — add solo state fields (`currentStreak`, `bestStreak`, `runActive`, `currentSongId`, `usedSongIds`).
+- [ ] **[30m] Streak survival mode - UI entry** — add "Single Player" start option on home screen and route to solo flow.
+- [ ] **[120m] Streak survival mode - answer flow** — add guess input, submit, correctness check, reveal, and auto-advance on correct.
+- [ ] **[30m] Streak survival mode - game over** — show final streak, best streak, and restart button.
+- [ ] **[30m] Streak survival mode - persistence** — save `bestStreak` locally first (localStorage), then optional cloud sync later.
+- [ ] **[120m] Daily challenge seed follow-up** — implement deterministic date-based song selection after streak mode is stable.
+- [ ] **[120m] Song pool source - phase 2 automation** — schedule ingestion/validation job (nightly) with dedupe + embeddability checks.
 
 ### Medium
 - [ ] Fix player video playback stopping
