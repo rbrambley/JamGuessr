@@ -37,7 +37,8 @@ async function createRoom(hostName, maxRounds) {
     currentSongIndex: 0,
     allSongsPlayed: false,
     playbackConfig: {
-      autoplayEnabled: false
+      autoplayEnabled: false,
+      adPacingMode: "normal"
     },
     createdAt: now,
     lastActivityAt: now,
@@ -208,7 +209,8 @@ async function startPlaying(roomId) {
     playback: null,
     playbackLeaderPlayerId: nextLeaderId,
     playbackConfig: {
-      autoplayEnabled: false
+      autoplayEnabled: false,
+      adPacingMode: "normal"
     },
     lastActivityAt: nowMs()
   });
@@ -339,6 +341,42 @@ async function setRoomAutoplayEnabled(roomId, actorId, enabled) {
       playbackConfig: {
         ...playbackConfig,
         autoplayEnabled: !!enabled
+      }
+    }));
+  });
+}
+
+async function setRoomAdPacingMode(roomId, actorId, mode) {
+  const roomRef = db.collection("rooms").doc(roomId);
+  const actorRef = roomRef.collection("players").doc(actorId);
+
+  await db.runTransaction(async tx => {
+    const [roomDoc, actorDoc] = await Promise.all([
+      tx.get(roomRef),
+      tx.get(actorRef)
+    ]);
+
+    if (!roomDoc.exists) {
+      throw new Error("Room not found.");
+    }
+
+    if (!actorDoc.exists) {
+      throw new Error("Host session not found.");
+    }
+
+    const actor = actorDoc.data() || {};
+    if (!actor.isHost) {
+      throw new Error("Only the host can adjust ad pacing.");
+    }
+
+    const roomData = roomDoc.data() || {};
+    const playbackConfig = roomData.playbackConfig || {};
+    const normalizedMode = mode === "ad-aware" ? "ad-aware" : "normal";
+
+    tx.update(roomRef, withRoomActivity({
+      playbackConfig: {
+        ...playbackConfig,
+        adPacingMode: normalizedMode
       }
     }));
   });
@@ -481,7 +519,8 @@ async function resetGame(roomId) {
     playback: null,
     playbackLeaderPlayerId: nextLeaderId,
     playbackConfig: {
-      autoplayEnabled: false
+      autoplayEnabled: false,
+      adPacingMode: "normal"
     },
     lastActivityAt: nowMs(),
     revealScoredRound: null,

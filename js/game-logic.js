@@ -219,6 +219,22 @@ function isRoomAutoplayEnabled(room = currentRoom) {
   return !!room?.playbackConfig?.autoplayEnabled;
 }
 
+function getRoomAdPacingMode(room = currentRoom) {
+  return room?.playbackConfig?.adPacingMode === "ad-aware" ? "ad-aware" : "normal";
+}
+
+function isRoomAdAwarePacingEnabled(room = currentRoom) {
+  return getRoomAdPacingMode(room) === "ad-aware";
+}
+
+function getPlaybackStartDelayMs(room = currentRoom, options = {}) {
+  const { autoplay = false } = options;
+  if (isRoomAdAwarePacingEnabled(room)) {
+    return autoplay ? 5000 : 3000;
+  }
+  return autoplay ? 2500 : 1200;
+}
+
 function logPlaybackTelemetry(nextState, details = {}) {
   const validStates = new Set(["ready", "playing", "blocked", "recovered"]);
   if (!validStates.has(nextState)) return;
@@ -1445,7 +1461,7 @@ async function advanceSongForEveryone(room, nextIndex) {
   await advanceSong(roomId, nextIndex);
   if (isCurrentPlaybackLeader(currentRoom || room)) {
     const roomForSync = currentRoom || room;
-    await syncSongForEveryone(roomForSync, nextIndex, 1200);
+    await syncSongForEveryone(roomForSync, nextIndex, getPlaybackStartDelayMs(roomForSync));
   }
 }
 
@@ -1468,7 +1484,7 @@ function maybeStartPlaybackFromLeader(room) {
   if (autoSyncKey === lastLeaderAutoSyncKey) return;
 
   lastLeaderAutoSyncKey = autoSyncKey;
-  syncSongForEveryone(room, room.currentSongIndex, 1200).catch(e => {
+  syncSongForEveryone(room, room.currentSongIndex, getPlaybackStartDelayMs(room)).catch(e => {
     console.error("Leader auto-start playback failed", e);
     if (lastLeaderAutoSyncKey === autoSyncKey) {
       lastLeaderAutoSyncKey = "";
@@ -1661,7 +1677,10 @@ function renderMetaPanel(room) {
     } else {
       pointsEl.classList.remove("meta-status-compact");
       const perkStatus = getCurrentPlayerPerkStatus(room);
-      pointsEl.textContent = perkStatus;
+      const adStatus = room.status === "playing" && isRoomAdAwarePacingEnabled(room)
+        ? "Ad-aware pacing enabled"
+        : "";
+      pointsEl.textContent = [perkStatus, adStatus].filter(Boolean).join(" • ");
     }
   }
 
@@ -2391,12 +2410,13 @@ function renderHostPlayingControls(room, isHost) {
     const currentSong = roundSongs[room.currentSongIndex];
     const hostIsPlaybackLeader = isCurrentPlaybackLeader(room);
     const autoplayEnabled = isRoomAutoplayEnabled(room);
+    const adAwarePacing = isRoomAdAwarePacingEnabled(room);
 
     // Auto-trigger playback at round start when autoplay was already enabled
     const autoplaySongKey = `${room.currentRound}:${room.currentSongIndex}`;
     if (hostIsPlaybackLeader && autoplayEnabled && currentSong?.youtubeVideoId && !hasStartedPlaybackForCurrentSong(room) && autoplaySyncedKey !== autoplaySongKey) {
       autoplaySyncedKey = autoplaySongKey;
-      syncSongForEveryone(room, room.currentSongIndex, 2500).catch(e => console.error("Autoplay round-start sync failed:", e));
+      syncSongForEveryone(room, room.currentSongIndex, getPlaybackStartDelayMs(room, { autoplay: true })).catch(e => console.error("Autoplay round-start sync failed:", e));
     }
 
     const row = document.createElement("div");
@@ -2420,7 +2440,7 @@ function renderHostPlayingControls(room, isHost) {
 
       playBtn.disabled = true;
       try {
-        await syncSongForEveryone(room, room.currentSongIndex, 2500);
+        await syncSongForEveryone(room, room.currentSongIndex, getPlaybackStartDelayMs(room));
       } catch (e) {
         alert("Could not sync playback: " + e.message);
       }
@@ -2468,7 +2488,7 @@ function renderHostPlayingControls(room, isHost) {
       try {
         await setRoomAutoplayEnabled(roomId, currentPlayerId, nextEnabled);
         if (hostIsPlaybackLeader && nextEnabled && currentSong?.youtubeVideoId && !hasStartedPlaybackForCurrentSong(room)) {
-          await syncSongForEveryone(room, room.currentSongIndex, 2500);
+          await syncSongForEveryone(room, room.currentSongIndex, getPlaybackStartDelayMs(room, { autoplay: true }));
         }
       } catch (e) {
         console.error("Autoplay toggle failed:", e);
@@ -2478,6 +2498,70 @@ function renderHostPlayingControls(room, isHost) {
       }
     };
     autoplayRow.appendChild(autoplayBtn);
+
+    const adRow = document.createElement("div");
+    adRow.className = "host-inline-controls-row";
+    hostControls.appendChild(adRow);
+
+    const adLabel = document.createElement("div");
+    adLabel.className = "guess-progress";
+    adLabel.style.marginTop = "0";
+    adLabel.textContent = "Ads detected during playback?";
+    adRow.appendChild(adLabel);
+
+    const adsYesBtn = document.createElement("button");
+    adsYesBtn.className = "secondary-btn compact-control-btn" + (adAwarePacing ? " compact-toggle-enabled" : "");
+    adsYesBtn.textContent = "Yes";
+
+    const adsNoBtn = document.createElement("button");
+    adsNoBtn.className = "secondary-btn compact-control-btn" + (!adAwarePacing ? " compact-toggle-enabled" : "");
+    adsNoBtn.textContent = "No";
+
+    const adHint = document.createElement("div");
+    adHint.className = "guess-progress";
+    adHint.textContent = adAwarePacing
+      ? "Ad-aware pacing is ON: longer song start buffers are active."
+      : "Normal pacing is ON.";
+
+    const setAdButtonState = enabled => {
+      adsYesBtn.classList.toggle("compact-toggle-enabled", enabled);
+      adsNoBtn.classList.toggle("compact-toggle-enabled", !enabled);
+      adHint.textContent = enabled
+        ? "Ad-aware pacing is ON: longer song start buffers are active."
+        : "Normal pacing is ON.";
+    };
+
+    adsYesBtn.onclick = async () => {
+      adsYesBtn.disabled = true;
+      adsNoBtn.disabled = true;
+      try {
+        await setRoomAdPacingMode(roomId, currentPlayerId, "ad-aware");
+        setAdButtonState(true);
+      } catch (e) {
+        alert("Could not enable ad-aware pacing: " + (e?.message || "unknown error"));
+      } finally {
+        adsYesBtn.disabled = false;
+        adsNoBtn.disabled = false;
+      }
+    };
+
+    adsNoBtn.onclick = async () => {
+      adsYesBtn.disabled = true;
+      adsNoBtn.disabled = true;
+      try {
+        await setRoomAdPacingMode(roomId, currentPlayerId, "normal");
+        setAdButtonState(false);
+      } catch (e) {
+        alert("Could not set normal pacing: " + (e?.message || "unknown error"));
+      } finally {
+        adsYesBtn.disabled = false;
+        adsNoBtn.disabled = false;
+      }
+    };
+
+    adRow.appendChild(adsYesBtn);
+    adRow.appendChild(adsNoBtn);
+    hostControls.appendChild(adHint);
     return;
   }
 
