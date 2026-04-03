@@ -37,7 +37,7 @@
 
 ## Scoring and Competitive Systems
 
-- [ ] **Perfect-round reward choice** *(Priority: Quick Win)* — if a player gets every song right in a round, choose next-round perk: 1.5x multiplier or halve one opponent's points for that round.
+- [x] **Perfect-round reward choice** *(Priority: Quick Win)* — if a player gets every song right in a round, choose next-round perk: 1.5x multiplier or halve one opponent's points for that round.
 - [ ] **Risk multiplier mode** *(Priority: Medium)* — before each round, choose Safe (1x) or Risk (2x for all-correct, 0.5x if any miss).
 - [ ] **Combo chain bonus** *(Priority: Medium)* — consecutive correct answers build combo multipliers (1.1x, 1.25x, 1.5x) that reset on miss.
 - [ ] **Comeback shield** *(Priority: Big Ticket)* — trailing player can activate one-time score protection to reduce incoming sabotage effects.
@@ -57,7 +57,7 @@
 ## Priority Buckets
 
 ### Quick Wins
-- [ ] Perfect-round reward choice
+- [x] Perfect-round reward choice
 - [ ] Streak survival mode
 - [ ] Best-of series duel
 - [ ] Premium lobby theme pack

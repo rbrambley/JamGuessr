@@ -107,6 +107,7 @@ function setupMobileTabs() {
 
 const POINTS_PER_CORRECT_GUESS = 1;
 const POINTS_FOR_PICKER_REVEAL = 1;
+const PERFECT_PERK_MULTIPLIER = 1.5;
 
 let pickingSearchResults = [];
 let pickingSelectedSong = null;
@@ -655,6 +656,104 @@ function getParticipatingPlayers() {
 
 function getGuessablePlayers() {
   return getParticipatingPlayers();
+}
+
+function formatPoints(points) {
+  const value = Number(points || 0);
+  return Number.isInteger(value) ? String(value) : value.toFixed(1);
+}
+
+function getRoundScoreBreakdown(roundNumber) {
+  const participants = getGuessablePlayers();
+  const participantIds = new Set(participants.map(player => player.id));
+  const roundSongs = getSongsForRound(roundNumber);
+
+  const base = new Map(participants.map(player => [player.id, 0]));
+  const multiplierBonus = new Map(participants.map(player => [player.id, 0]));
+  const halvePenalties = new Map(participants.map(player => [player.id, 0]));
+
+  roundSongs.forEach(song => {
+    if (!participantIds.has(song.pickedBy)) return;
+
+    base.set(song.pickedBy, (base.get(song.pickedBy) || 0) + POINTS_FOR_PICKER_REVEAL);
+
+    guesses.forEach(guess => {
+      const isForSong = guess.songId === song.id;
+      const isCorrect = guess.guessedPlayerId === song.pickedBy;
+      const isSelfGuess = guess.guessedBy === song.pickedBy;
+      if (!isForSong || !isCorrect || isSelfGuess) return;
+      if (!participantIds.has(guess.guessedBy)) return;
+
+      base.set(guess.guessedBy, (base.get(guess.guessedBy) || 0) + POINTS_PER_CORRECT_GUESS);
+    });
+  });
+
+  participants.forEach(player => {
+    if (Number(player.activePerkRound) !== Number(roundNumber)) return;
+    if (player.activePerkType !== "multiplier") return;
+
+    const basePoints = base.get(player.id) || 0;
+    const bonus = basePoints * (PERFECT_PERK_MULTIPLIER - 1);
+    multiplierBonus.set(player.id, bonus);
+  });
+
+  const adjustedBeforeHalve = new Map(participants.map(player => {
+    const id = player.id;
+    return [id, (base.get(id) || 0) + (multiplierBonus.get(id) || 0)];
+  }));
+
+  participants.forEach(player => {
+    if (Number(player.activePerkRound) !== Number(roundNumber)) return;
+    if (player.activePerkType !== "halve-opponent") return;
+
+    const targetId = player.activePerkTargetId;
+    if (!targetId || !adjustedBeforeHalve.has(targetId) || targetId === player.id) return;
+
+    const targetPoints = adjustedBeforeHalve.get(targetId) || 0;
+    const penalty = targetPoints * 0.5;
+    halvePenalties.set(targetId, (halvePenalties.get(targetId) || 0) + penalty);
+  });
+
+  const final = new Map(participants.map(player => {
+    const id = player.id;
+    const value = (adjustedBeforeHalve.get(id) || 0) - (halvePenalties.get(id) || 0);
+    return [id, value];
+  }));
+
+  return {
+    participants,
+    roundSongs,
+    base,
+    multiplierBonus,
+    halvePenalties,
+    final
+  };
+}
+
+function getPerfectRoundPlayerIds(roundNumber) {
+  const participants = getGuessablePlayers();
+  const participantIds = new Set(participants.map(player => player.id));
+  const roundSongs = getSongsForRound(roundNumber).filter(song => participantIds.has(song.pickedBy));
+  const perfectPlayerIds = new Set();
+
+  participants.forEach(player => {
+    const requiredSongs = roundSongs.filter(song => song.pickedBy !== player.id);
+    if (requiredSongs.length === 0) return;
+
+    const allCorrect = requiredSongs.every(song => {
+      return guesses.some(guess => (
+        guess.songId === song.id &&
+        guess.guessedBy === player.id &&
+        guess.guessedPlayerId === song.pickedBy
+      ));
+    });
+
+    if (allCorrect) {
+      perfectPlayerIds.add(player.id);
+    }
+  });
+
+  return perfectPlayerIds;
 }
 
 function isCurrentPlayerScreen() {
@@ -1542,17 +1641,9 @@ function renderMetaPanel(room) {
   // Compute per-player round deltas to highlight on chips during reveal
   const roundDeltas = new Map();
   if (room.status === "reveal") {
-    const revealRoundSongs = getSongsForRound(room.currentRound);
-    participatingPlayers.forEach(p => roundDeltas.set(p.id, 0));
-    revealRoundSongs.forEach(song => {
-      if (roundDeltas.has(song.pickedBy)) {
-        roundDeltas.set(song.pickedBy, (roundDeltas.get(song.pickedBy) || 0) + POINTS_FOR_PICKER_REVEAL);
-      }
-      guesses.forEach(g => {
-        if (g.songId === song.id && g.guessedPlayerId === song.pickedBy && g.guessedBy !== song.pickedBy) {
-          roundDeltas.set(g.guessedBy, (roundDeltas.get(g.guessedBy) || 0) + POINTS_PER_CORRECT_GUESS);
-        }
-      });
+    const breakdown = getRoundScoreBreakdown(room.currentRound);
+    participatingPlayers.forEach(player => {
+      roundDeltas.set(player.id, breakdown.final.get(player.id) || 0);
     });
   }
 
@@ -1565,7 +1656,7 @@ function renderMetaPanel(room) {
 
     const score = document.createElement("span");
     score.className = "player-pill-score";
-    score.textContent = `${p.score || 0} pts`;
+    score.textContent = `${formatPoints(p.score || 0)} pts`;
 
     const name = document.createElement("span");
     name.className = "player-pill-name";
@@ -1579,7 +1670,7 @@ function renderMetaPanel(room) {
       if (delta > 0) {
         const badge = document.createElement("span");
         badge.className = "player-pill-delta";
-        badge.textContent = `+${delta}`;
+        badge.textContent = `+${formatPoints(delta)}`;
         btn.appendChild(badge);
         btn.classList.add("player-chip-scoring");
       }
@@ -2175,7 +2266,7 @@ function renderMasterPlaylist(room, isScreenMode = false) {
 
           const score = document.createElement("span");
           score.className = "player-pill-score";
-          score.textContent = `${p.score || 0} pts`;
+          score.textContent = `${formatPoints(p.score || 0)} pts`;
 
           btn.appendChild(name);
           btn.appendChild(score);
@@ -2410,6 +2501,114 @@ function renderFinalProcessingView(room, isHost) {
   `;
 }
 
+function renderPerfectRoundPerkChooser(container, room) {
+  if (!container || !room) return;
+  if (room.currentRound >= room.maxRounds) return;
+
+  const me = players.find(player => player.id === currentPlayerId);
+  if (!me || isScreenRole(me)) return;
+
+  const perfectIds = getPerfectRoundPlayerIds(room.currentRound);
+  if (!perfectIds.has(currentPlayerId)) return;
+
+  const panel = document.createElement("div");
+  panel.className = "reveal-round-summary";
+  panel.style.marginTop = "12px";
+
+  const title = document.createElement("div");
+  title.className = "reveal-summary-title";
+  title.textContent = "Perfect round reward";
+  panel.appendChild(title);
+
+  const copy = document.createElement("div");
+  copy.className = "guess-progress";
+  copy.textContent = "You got every guess right. Choose one perk for next round.";
+  panel.appendChild(copy);
+
+  const alreadyChosen =
+    Number(me.activePerkRound) === Number(room.currentRound + 1) &&
+    Number(me.lastPerkSourceRound) === Number(room.currentRound) &&
+    !!me.activePerkType;
+
+  if (alreadyChosen) {
+    const chosen = document.createElement("div");
+    chosen.className = "guess-progress";
+    if (me.activePerkType === "halve-opponent") {
+      const target = players.find(player => player.id === me.activePerkTargetId);
+      chosen.textContent = `Saved: Halve ${target?.name || "opponent"}'s points next round.`;
+    } else {
+      chosen.textContent = "Saved: 1.5x multiplier active for your next round.";
+    }
+    panel.appendChild(chosen);
+    container.appendChild(panel);
+    return;
+  }
+
+  const row = document.createElement("div");
+  row.className = "host-inline-controls-row";
+  panel.appendChild(row);
+
+  const multiplierBtn = document.createElement("button");
+  multiplierBtn.type = "button";
+  multiplierBtn.className = "secondary-btn compact-control-btn";
+  multiplierBtn.textContent = "Take 1.5x multiplier";
+
+  const halveBtn = document.createElement("button");
+  halveBtn.type = "button";
+  halveBtn.className = "secondary-btn compact-control-btn";
+  halveBtn.textContent = "Halve opponent points";
+
+  row.appendChild(multiplierBtn);
+  row.appendChild(halveBtn);
+
+  const targetRow = document.createElement("div");
+  targetRow.className = "host-inline-controls-row";
+  targetRow.style.display = "none";
+  panel.appendChild(targetRow);
+
+  const setBusy = busy => {
+    multiplierBtn.disabled = busy;
+    halveBtn.disabled = busy;
+    targetRow.querySelectorAll("button").forEach(btn => {
+      btn.disabled = busy;
+    });
+  };
+
+  multiplierBtn.onclick = async () => {
+    try {
+      setBusy(true);
+      await setPerfectRoundPerk(roomId, currentPlayerId, "multiplier", null, room.currentRound);
+    } catch (e) {
+      alert("Could not save reward: " + (e?.message || "unknown error"));
+      setBusy(false);
+    }
+  };
+
+  const targetCandidates = getGuessablePlayers().filter(player => player.id !== currentPlayerId);
+  targetCandidates.forEach(target => {
+    const btn = document.createElement("button");
+    btn.type = "button";
+    btn.className = "secondary-btn compact-control-btn";
+    btn.textContent = target.name;
+    btn.onclick = async () => {
+      try {
+        setBusy(true);
+        await setPerfectRoundPerk(roomId, currentPlayerId, "halve-opponent", target.id, room.currentRound);
+      } catch (e) {
+        alert("Could not save reward: " + (e?.message || "unknown error"));
+        setBusy(false);
+      }
+    };
+    targetRow.appendChild(btn);
+  });
+
+  halveBtn.onclick = () => {
+    targetRow.style.display = targetRow.style.display === "none" ? "flex" : "none";
+  };
+
+  container.appendChild(panel);
+}
+
 async function maybeFinalizeRoundScoring(room, isHost) {
   if (!isHost || scoreFinalizeInFlight) return;
   if (room.revealScoredRound === room.currentRound) return;
@@ -2423,6 +2622,7 @@ async function maybeFinalizeRoundScoring(room, isHost) {
       Promise.all(roundSongs.map(song => awardScoresForSong(song))),
       new Promise(resolve => setTimeout(resolve, 5000))
     ]);
+    await applyRoundPerkAdjustments(room);
     revealScoresAppliedRound = room.currentRound;
     await db.collection("rooms").doc(roomId).update({
       status: "reveal",
@@ -2434,6 +2634,85 @@ async function maybeFinalizeRoundScoring(room, isHost) {
   } finally {
     scoreFinalizeInFlight = false;
   }
+}
+
+async function applyRoundPerkAdjustments(room) {
+  if (!room) return;
+
+  const roomRef = db.collection("rooms").doc(roomId);
+  const playersRef = roomRef.collection("players");
+  const roundNumber = room.currentRound;
+
+  const breakdown = getRoundScoreBreakdown(roundNumber);
+  const adjustmentByPlayer = new Map();
+  const playersWithActivePerk = [];
+  const impactedPlayerIds = [];
+
+  breakdown.participants.forEach(player => {
+    const base = breakdown.base.get(player.id) || 0;
+    const final = breakdown.final.get(player.id) || 0;
+    const adjustment = final - base;
+    adjustmentByPlayer.set(player.id, adjustment);
+    if (adjustment !== 0) {
+      impactedPlayerIds.push(player.id);
+    }
+
+    if (Number(player.activePerkRound) === Number(roundNumber) && player.activePerkType) {
+      playersWithActivePerk.push(player.id);
+    }
+  });
+
+  if (playersWithActivePerk.length === 0) return;
+
+  await db.runTransaction(async tx => {
+    const roomDoc = await tx.get(roomRef);
+    if (!roomDoc.exists) return;
+
+    const roomData = roomDoc.data() || {};
+    if (Number(roomData.roundPerkAppliedRound) === Number(roundNumber)) return;
+
+    const playerDocs = await Promise.all(
+      playersWithActivePerk.map(playerId => tx.get(playersRef.doc(playerId)))
+    );
+
+    const activePlayerIds = [];
+    playerDocs.forEach(doc => {
+      if (!doc.exists) return;
+      const data = doc.data() || {};
+      if (Number(data.activePerkRound) !== Number(roundNumber) || !data.activePerkType) return;
+      activePlayerIds.push(doc.id);
+    });
+
+    const impactedDocs = await Promise.all(
+      impactedPlayerIds.map(playerId => tx.get(playersRef.doc(playerId)))
+    );
+
+    impactedDocs.forEach(doc => {
+      if (!doc.exists) return;
+      const adjustment = adjustmentByPlayer.get(doc.id) || 0;
+      if (adjustment === 0) return;
+
+      tx.update(doc.ref, {
+        score: firebase.firestore.FieldValue.increment(adjustment)
+      });
+    });
+
+    activePlayerIds.forEach(playerId => {
+      const playerDocRef = playersRef.doc(playerId);
+
+      tx.update(playerDocRef, {
+        activePerkType: null,
+        activePerkRound: null,
+        activePerkTargetId: null,
+        lastPerkSourceRound: null
+      });
+    });
+
+    tx.update(roomRef, {
+      roundPerkAppliedRound: roundNumber,
+      lastActivityAt: Date.now()
+    });
+  });
 }
 
 async function maybeFinalizeGameResults(room, isHost) {
@@ -2488,19 +2767,10 @@ async function renderRevealView(room, isHost) {
     return;
   }
 
-  // Compute per-player round deltas from local guesses for display
+  // Compute per-player round deltas (including active perks) for reveal display.
   const guessablePlayers = getGuessablePlayers();
-  const roundDeltas = new Map(guessablePlayers.map(p => [p.id, 0]));
-  roundSongs.forEach(song => {
-    if (roundDeltas.has(song.pickedBy)) {
-      roundDeltas.set(song.pickedBy, (roundDeltas.get(song.pickedBy) || 0) + POINTS_FOR_PICKER_REVEAL);
-    }
-    guesses.forEach(g => {
-      if (g.songId === song.id && g.guessedPlayerId === song.pickedBy && g.guessedBy !== song.pickedBy) {
-        roundDeltas.set(g.guessedBy, (roundDeltas.get(g.guessedBy) || 0) + POINTS_PER_CORRECT_GUESS);
-      }
-    });
-  });
+  const scoreBreakdown = getRoundScoreBreakdown(room.currentRound);
+  const roundDeltas = scoreBreakdown.final;
 
   // Build staggered animated reveal cards
   resultsDiv.innerHTML = "";
@@ -2592,13 +2862,13 @@ async function renderRevealView(room, isHost) {
 
       const scoreSpan = document.createElement("span");
       scoreSpan.className = "reveal-summary-score";
-      scoreSpan.textContent = `${p.score || 0} pts`;
+      scoreSpan.textContent = `${formatPoints(p.score || 0)} pts`;
       srow.appendChild(scoreSpan);
 
       if (delta > 0) {
         const badge = document.createElement("span");
         badge.className = "delta-badge";
-        badge.textContent = `+${delta}`;
+        badge.textContent = `+${formatPoints(delta)}`;
         srow.appendChild(badge);
       }
 
@@ -2607,6 +2877,8 @@ async function renderRevealView(room, isHost) {
 
   summary.appendChild(summaryGrid);
   resultsDiv.appendChild(summary);
+
+  renderPerfectRoundPerkChooser(resultsDiv, room);
 
   if (nextBtn && isHost) {
     if (room.currentRound < room.maxRounds) {
@@ -2728,7 +3000,7 @@ async function renderFinalResults(players) {
 
       const scoreSpan = document.createElement("span");
       scoreSpan.className = "podium-score";
-      scoreSpan.textContent = `${p.score || 0} pts`;
+      scoreSpan.textContent = `${formatPoints(p.score || 0)} pts`;
       row.appendChild(scoreSpan);
 
       grid.appendChild(row);

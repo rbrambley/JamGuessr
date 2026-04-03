@@ -40,7 +40,8 @@ async function createRoom(hostName, maxRounds) {
       autoplayEnabled: false
     },
     createdAt: now,
-    lastActivityAt: now
+    lastActivityAt: now,
+    roundPerkAppliedRound: null
   });
   // Add host as first player
   const playerRef = await db.collection("rooms").doc(roomRef.id)
@@ -217,6 +218,70 @@ async function revealRound(roomId) {
   await db.collection("rooms").doc(roomId).update(withRoomActivity({ status: "scoring" }));
 }
 
+async function setPerfectRoundPerk(roomId, playerId, perkType, targetPlayerId = null, sourceRound = null) {
+  const roomRef = db.collection("rooms").doc(roomId);
+  const playerRef = roomRef.collection("players").doc(playerId);
+
+  await db.runTransaction(async tx => {
+    const [roomDoc, playerDoc] = await Promise.all([
+      tx.get(roomRef),
+      tx.get(playerRef)
+    ]);
+
+    if (!roomDoc.exists) {
+      throw new Error("Room not found.");
+    }
+    if (!playerDoc.exists) {
+      throw new Error("Player not found.");
+    }
+
+    const room = roomDoc.data() || {};
+    const player = playerDoc.data() || {};
+    const nextRound = (room.currentRound || 0) + 1;
+    const normalizedType = perkType === "halve-opponent" ? "halve-opponent" : "multiplier";
+
+    if (room.status !== "reveal") {
+      throw new Error("Perk choices can only be set during reveal.");
+    }
+
+    if (room.currentRound >= room.maxRounds) {
+      throw new Error("No next round available for this perk.");
+    }
+
+    if ((player.role || "player") === "screen") {
+      throw new Error("Screen devices cannot set perks.");
+    }
+
+    if (sourceRound !== null && Number(sourceRound) !== Number(room.currentRound)) {
+      throw new Error("Round changed before perk could be saved.");
+    }
+
+    if (normalizedType === "halve-opponent") {
+      if (!targetPlayerId || targetPlayerId === playerId) {
+        throw new Error("Select a valid opponent target.");
+      }
+
+      const targetRef = roomRef.collection("players").doc(targetPlayerId);
+      const targetDoc = await tx.get(targetRef);
+      if (!targetDoc.exists) {
+        throw new Error("Target player not found.");
+      }
+
+      const target = targetDoc.data() || {};
+      if ((target.role || "player") === "screen") {
+        throw new Error("Screen devices cannot be targeted.");
+      }
+    }
+
+    tx.update(playerRef, {
+      activePerkType: normalizedType,
+      activePerkRound: nextRound,
+      activePerkTargetId: normalizedType === "halve-opponent" ? targetPlayerId : null,
+      lastPerkSourceRound: room.currentRound
+    });
+  });
+}
+
 async function nextRound(roomId, nextRound) {
   const roomRef = db.collection("rooms").doc(roomId);
   const playersSnap = await roomRef.collection("players").get();
@@ -233,7 +298,8 @@ async function nextRound(roomId, nextRound) {
     allSongsPlayed: false,
     playback: null,
     lastActivityAt: nowMs(),
-    revealScoredRound: null
+    revealScoredRound: null,
+    roundPerkAppliedRound: null
   });
 
   await batch.commit();
@@ -386,7 +452,14 @@ async function resetGame(roomId) {
   const batch = db.batch();
 
   playersSnap.docs.forEach(doc => {
-    batch.update(doc.ref, { score: 0, submitted: false });
+    batch.update(doc.ref, {
+      score: 0,
+      submitted: false,
+      activePerkType: null,
+      activePerkRound: null,
+      activePerkTargetId: null,
+      lastPerkSourceRound: null
+    });
   });
 
   const playersData = playersSnap.docs.map(doc => ({ id: doc.id, ...(doc.data() || {}) }));
@@ -411,7 +484,8 @@ async function resetGame(roomId) {
       autoplayEnabled: false
     },
     lastActivityAt: nowMs(),
-    revealScoredRound: null
+    revealScoredRound: null,
+    roundPerkAppliedRound: null
   });
 
   await batch.commit();
