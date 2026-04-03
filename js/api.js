@@ -36,6 +36,9 @@ async function createRoom(hostName, maxRounds) {
     currentRound: 1,
     currentSongIndex: 0,
     allSongsPlayed: false,
+    playbackConfig: {
+      autoplayEnabled: false
+    },
     createdAt: now,
     lastActivityAt: now
   });
@@ -203,6 +206,9 @@ async function startPlaying(roomId) {
     allSongsPlayed: false,
     playback: null,
     playbackLeaderPlayerId: nextLeaderId,
+    playbackConfig: {
+      autoplayEnabled: false
+    },
     lastActivityAt: nowMs()
   });
 }
@@ -235,6 +241,41 @@ async function nextRound(roomId, nextRound) {
 
 async function finishGame(roomId) {
   await db.collection("rooms").doc(roomId).update(withRoomActivity({ status: "finalizing" }));
+}
+
+async function setRoomAutoplayEnabled(roomId, actorId, enabled) {
+  const roomRef = db.collection("rooms").doc(roomId);
+  const actorRef = roomRef.collection("players").doc(actorId);
+
+  await db.runTransaction(async tx => {
+    const [roomDoc, actorDoc] = await Promise.all([
+      tx.get(roomRef),
+      tx.get(actorRef)
+    ]);
+
+    if (!roomDoc.exists) {
+      throw new Error("Room not found.");
+    }
+
+    if (!actorDoc.exists) {
+      throw new Error("Host session not found.");
+    }
+
+    const actor = actorDoc.data() || {};
+    if (!actor.isHost) {
+      throw new Error("Only the host can change autoplay.");
+    }
+
+    const roomData = roomDoc.data() || {};
+    const playbackConfig = roomData.playbackConfig || {};
+
+    tx.update(roomRef, withRoomActivity({
+      playbackConfig: {
+        ...playbackConfig,
+        autoplayEnabled: !!enabled
+      }
+    }));
+  });
 }
 
 async function setPlayerRole(roomId, actorId, targetPlayerId, role) {
@@ -366,6 +407,9 @@ async function resetGame(roomId) {
     allSongsPlayed: false,
     playback: null,
     playbackLeaderPlayerId: nextLeaderId,
+    playbackConfig: {
+      autoplayEnabled: false
+    },
     lastActivityAt: nowMs(),
     revealScoredRound: null
   });

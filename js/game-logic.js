@@ -152,7 +152,6 @@ const EMERGENCY_FALLBACK_SONGS = [
 let didRedirectAfterRemoval = false;
 let hasLoadedPlayersSnapshot = false;
 let hasConfirmedPlayerPresence = false;
-let hostAutoplayEnabled = false;
 let autoplayAdvancePending = false;
 let autoplaySyncedKey = "";
 
@@ -213,6 +212,10 @@ function getPlaybackSignature(playback) {
     playback.status || "unknown",
     playback.version ?? 0
   ].join("|");
+}
+
+function isRoomAutoplayEnabled(room = currentRoom) {
+  return !!room?.playbackConfig?.autoplayEnabled;
 }
 
 function logPlaybackTelemetry(nextState, details = {}) {
@@ -1001,7 +1004,7 @@ function handleHostPlaybackStateChange(ytState) {
 }
 
 async function handleHostAutoplayAdvance() {
-  if (!hostAutoplayEnabled || autoplayAdvancePending) return;
+  if (!isRoomAutoplayEnabled(currentRoom) || autoplayAdvancePending) return;
   if (!currentRoom || currentRoom.status !== "playing" || currentRoom.allSongsPlayed) return;
   if (!isCurrentPlaybackLeader(currentRoom)) return;
 
@@ -2248,10 +2251,11 @@ function renderHostPlayingControls(room, isHost) {
   if (!room.allSongsPlayed) {
     const currentSong = roundSongs[room.currentSongIndex];
     const hostIsPlaybackLeader = isCurrentPlaybackLeader(room);
+    const autoplayEnabled = isRoomAutoplayEnabled(room);
 
     // Auto-trigger playback at round start when autoplay was already enabled
     const autoplaySongKey = `${room.currentRound}:${room.currentSongIndex}`;
-    if (hostIsPlaybackLeader && hostAutoplayEnabled && currentSong?.youtubeVideoId && !hasStartedPlaybackForCurrentSong(room) && autoplaySyncedKey !== autoplaySongKey) {
+    if (hostIsPlaybackLeader && autoplayEnabled && currentSong?.youtubeVideoId && !hasStartedPlaybackForCurrentSong(room) && autoplaySyncedKey !== autoplaySongKey) {
       autoplaySyncedKey = autoplaySongKey;
       syncSongForEveryone(room, room.currentSongIndex, 2500).catch(e => console.error("Autoplay round-start sync failed:", e));
     }
@@ -2317,19 +2321,22 @@ function renderHostPlayingControls(room, isHost) {
     hostControls.appendChild(autoplayRow);
 
     const autoplayBtn = document.createElement("button");
-    autoplayBtn.className = "secondary-btn compact-control-btn compact-toggle-full" + (hostAutoplayEnabled ? " compact-toggle-enabled" : "");
-    autoplayBtn.textContent = `Autoplay: ${hostAutoplayEnabled ? "On" : "Off"}`;
-    autoplayBtn.disabled = !hostIsPlaybackLeader;
+    autoplayBtn.className = "secondary-btn compact-control-btn compact-toggle-full" + (autoplayEnabled ? " compact-toggle-enabled" : "");
+    autoplayBtn.textContent = `Autoplay: ${autoplayEnabled ? "On" : "Off"}`;
     autoplayBtn.onclick = async () => {
-      hostAutoplayEnabled = !hostAutoplayEnabled;
-      if (hostAutoplayEnabled && currentSong?.youtubeVideoId) {
-        try {
+      autoplayBtn.disabled = true;
+      const nextEnabled = !autoplayEnabled;
+      try {
+        await setRoomAutoplayEnabled(roomId, currentPlayerId, nextEnabled);
+        if (hostIsPlaybackLeader && nextEnabled && currentSong?.youtubeVideoId && !hasStartedPlaybackForCurrentSong(room)) {
           await syncSongForEveryone(room, room.currentSongIndex, 2500);
-        } catch (e) {
-          console.error("Autoplay start failed:", e);
         }
+      } catch (e) {
+        console.error("Autoplay toggle failed:", e);
+        alert("Could not update autoplay: " + (e?.message || "unknown error"));
+      } finally {
+        autoplayBtn.disabled = false;
       }
-      renderHostPlayingControls(room, isHost);
     };
     autoplayRow.appendChild(autoplayBtn);
     return;
