@@ -2098,10 +2098,33 @@ function watchForAllSubmissions() {
   if (allSubmissionsUnsub) return;
 
   allSubmissionsUnsub = db.collection("rooms").doc(roomId).collection("players")
-    .onSnapshot(snap => {
+    .onSnapshot(async snap => {
       const all = snap.docs.map(d => d.data());
       const participants = all.filter(player => (player?.role || "player") !== "screen");
       if (participants.length > 0 && participants.every(player => !!player.submitted)) {
+        // Validation: Ensure unique player assignment per round
+        try {
+          const songsSnap = await db.collection("rooms").doc(roomId).collection("songs").get();
+          const currentRoundSongs = songsSnap.docs
+            .map(doc => doc.data())
+            .filter(song => song.round === currentRound);
+          const pickedBySet = new Set();
+          let duplicateFound = false;
+          for (const song of currentRoundSongs) {
+            if (pickedBySet.has(song.pickedBy)) {
+              duplicateFound = true;
+              break;
+            }
+            pickedBySet.add(song.pickedBy);
+          }
+          if (duplicateFound) {
+            alert("Each song must be assigned to a unique player for this round. Please resolve duplicate assignments before starting.");
+            return;
+          }
+        } catch (e) {
+          alert("Error validating unique player assignment: " + (e?.message || e));
+          return;
+        }
         if (allSubmissionsUnsub) {
           allSubmissionsUnsub();
           allSubmissionsUnsub = null;
