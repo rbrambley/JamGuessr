@@ -92,10 +92,24 @@
       }
     }
     
+    function autoFillJoinCode() {
+      const params = new URLSearchParams(window.location.search);
+      const joinCode = params.get("join");
+      if (!joinCode) return;
+      const codeInput = document.getElementById("room-code");
+      const nameInput = document.getElementById("player-name");
+      if (codeInput) codeInput.value = joinCode.toUpperCase();
+      if (nameInput) {
+        nameInput.focus();
+        nameInput.scrollIntoView({ behavior: "smooth", block: "center" });
+      }
+    }
+
     if (document.readyState === "loading") {
-      document.addEventListener("DOMContentLoaded", attachHandlers);
+      document.addEventListener("DOMContentLoaded", () => { attachHandlers(); autoFillJoinCode(); });
     } else {
       attachHandlers();
+      autoFillJoinCode();
     }
   </script>
 
