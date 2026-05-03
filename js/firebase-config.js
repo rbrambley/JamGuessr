@@ -19,7 +19,16 @@ if (missingFirebaseFields.length > 0) {
 }
 
 firebase.initializeApp(firebaseConfig);
+const auth = firebase.auth();
 const db = firebase.firestore();
+
+auth.signInAnonymously()
+  .then(() => {
+    console.log("Logged in anonymously!");
+  })
+  .catch((error) => {
+    console.error("Auth failed:", error);
+  });
 
 // Backend endpoint used for YouTube search.
 // For same-origin local development, keep the relative default.

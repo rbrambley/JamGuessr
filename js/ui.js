@@ -8,7 +8,7 @@ function getLobbyParticipatingPlayers(playersList) {
   return (playersList || []).filter(player => !isLobbyScreenRole(player));
 }
 
-function renderLobby(players, code, isHost) {
+function renderLobby(players, code, isHost, room) {
   const minimumPlayers = 2;
   const participantCount = getLobbyParticipatingPlayers(players).length;
   const screenCount = Math.max(0, players.length - participantCount);
@@ -168,4 +168,49 @@ function renderLobby(players, code, isHost) {
     list.appendChild(li);
   });
 
+  renderLobbyPlaybackModePicker(isHost, room);
+}
+
+function renderLobbyPlaybackModePicker(isHost, room) {
+  const container = document.getElementById("lobby-playback-mode-picker");
+  if (!container) return;
+
+  if (!isHost) {
+    container.innerHTML = "";
+    return;
+  }
+
+  const currentMode = (room && room.playbackMode) ? room.playbackMode : "embed";
+
+  container.innerHTML = `
+    <div class="lobby-mode-picker">
+      <div class="lobby-mode-picker-label">Playback Mode</div>
+      <div class="lobby-mode-picker-buttons">
+        <button type="button"
+          class="lobby-mode-btn${currentMode === "embed" ? " lobby-mode-btn-active" : ""}"
+          data-mode="embed">
+          YouTube Embed
+        </button>
+        <button type="button"
+          class="lobby-mode-btn${currentMode === "native_handoff" ? " lobby-mode-btn-active" : ""}"
+          data-mode="native_handoff">
+          Native App Handoff
+        </button>
+      </div>
+    </div>
+  `;
+
+  container.querySelectorAll(".lobby-mode-btn").forEach(btn => {
+    const mode = btn.dataset.mode;
+    if (mode === currentMode) return;
+    btn.addEventListener("click", async () => {
+      btn.disabled = true;
+      try {
+        await setRoomPlaybackMode(roomId, currentPlayerId, mode);
+      } catch (e) {
+        alert("Could not change playback mode: " + (e?.message || "unknown error"));
+        btn.disabled = false;
+      }
+    });
+  });
 }

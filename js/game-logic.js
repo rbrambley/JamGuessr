@@ -26,7 +26,71 @@ const CANONICAL_STATUS_VIEW = {
   finished: "view-final"
 };
 
+const PLAYBACK_MODE_EMBED = "embed";
+const PLAYBACK_MODE_NATIVE_HANDOFF = "native_handoff";
+
+// ── Native handoff breadcrumb logger ─────────────────────────────────────────
+// Lightweight console markers for phase transitions, reconnects, and fallback
+// activations. Scoped to native_handoff paths only — no external calls.
+function nativeBreadcrumb(event, data) {
+  try {
+    const ts = new Date().toISOString();
+    // eslint-disable-next-line no-console
+    console.log(`[JG:native] ${ts} ${event}`, data || "");
+  } catch (_) {
+    // never let logging break the calling path
+  }
+}
+
+function normalizeRoomPlaybackModeValue(mode) {
+  return mode === PLAYBACK_MODE_NATIVE_HANDOFF ? PLAYBACK_MODE_NATIVE_HANDOFF : PLAYBACK_MODE_EMBED;
+}
+
+function isNativeHandoffPlaybackMode(room) {
+  return normalizeRoomPlaybackModeValue(room?.playbackMode) === PLAYBACK_MODE_NATIVE_HANDOFF;
+}
+
+function inferFallbackPlaybackPhase(room) {
+  if (room?.allSongsPlayed) return "ended";
+  if (room?.playback?.status === "paused") return "paused";
+  if (room?.playback?.status === "playing") return "playing";
+  if (room?.status === "playing") return "ready";
+  return "pending";
+}
+
+function normalizeRoomPlaybackContext(room) {
+  if (!room) return room;
+
+  const normalizedMode = normalizeRoomPlaybackModeValue(room.playbackMode);
+  const hadState = room.playbackState && typeof room.playbackState === "object";
+  const state = hadState
+    ? room.playbackState
+    : {
+      phase: inferFallbackPlaybackPhase(room),
+      updatedAt: Date.now(),
+      source: "compat:fallback"
+    };
+
+  if (!hadState) {
+    nativeBreadcrumb("compat:playbackState-missing", {
+      roomStatus: room.status,
+      playbackMode: normalizedMode
+    });
+  }
+
+  return {
+    ...room,
+    playbackMode: normalizedMode,
+    playbackState: {
+      phase: typeof state.phase === "string" ? state.phase : inferFallbackPlaybackPhase(room),
+      updatedAt: Number.isFinite(Number(state.updatedAt)) ? Number(state.updatedAt) : Date.now(),
+      source: state.source || null
+    }
+  };
+}
+
 let lastRoomStatus = null;
+let lastKnownPlaybackMode = null;
 
 function getVisibleViewId() {
   const visible = document.querySelector(".view[style*='display: block']");
@@ -56,7 +120,7 @@ function renderViewById(viewId, room, isHost) {
   switch (viewId) {
     case "view-lobby":
       resetPickingView();
-      renderLobby(players, room.code, isHost);
+      renderLobby(players, room.code, isHost, room);
       break;
     case "view-picking":
       renderSongInputs(room.currentRound, room.maxRounds);
@@ -181,6 +245,8 @@ let lastClientGuardCorrectionAt = 0;
 let lastHostPlaybackHeartbeatBroadcastAt = 0;
 let lastRequestedPlaybackSignature = "";
 let lastLeaderAutoSyncKey = "";
+let nativePlaybackStatusTimer = null;
+let lastNativeReconnectRecoveryKey = "";
 const CLIENT_DESYNC_RECOVERY_COOLDOWN_MS = 12000;
 const PLAYBACK_TELEMETRY_MAX_EVENTS = 120;
 let playbackTelemetryState = "idle";
@@ -290,8 +356,9 @@ function startListening() {
       window.location.href = "index.html";
       return;
     }
-    currentRoom = doc.data();
-    handleRoomUpdate(currentRoom);
+    const roomData = normalizeRoomPlaybackContext(doc.data());
+    currentRoom = roomData;
+    handleRoomUpdate(roomData);
   });
 
   db.collection("rooms").doc(roomId).collection("players")
@@ -1017,6 +1084,7 @@ async function broadcastHostPlaybackState(force = false) {
 
 function updateHostPlaybackSyncLoop(room, isHost) {
   const shouldRun =
+    !isNativeHandoffPlaybackMode(room) &&
     isCurrentPlaybackLeader(room) &&
     shouldRenderPlaybackForCurrentClient() &&
     room?.status === "playing" &&
@@ -1125,6 +1193,7 @@ async function guardClientPlaybackSync(room) {
 
 function updateClientPlaybackGuardLoop(room, isHost) {
   const shouldRun =
+    !isNativeHandoffPlaybackMode(room) &&
     !isHost &&
     shouldRenderPlaybackForCurrentClient() &&
     room?.status === "playing" &&
@@ -1467,6 +1536,7 @@ async function advanceSongForEveryone(room, nextIndex) {
 
 function maybeStartPlaybackFromLeader(room) {
   if (!room || room.status !== "playing" || room.allSongsPlayed) return;
+  if (isNativeHandoffPlaybackMode(room)) return;
   if (!isCurrentPlaybackLeader(room)) return;
 
   const roundSongs = getSongsForRound(room.currentRound);
@@ -1492,9 +1562,51 @@ function maybeStartPlaybackFromLeader(room) {
   });
 }
 
+async function maybeRecoverNativePlaybackAfterReconnect(room, isHost) {
+  if (!room || !isHost) return;
+  if (!isNativeHandoffPlaybackMode(room)) return;
+  if (room.status !== "playing" || room.allSongsPlayed) return;
+
+  const hostChange = room.lastHostChange;
+  if (!hostChange?.changedAt) return;
+
+  const allowedReasons = new Set(["host_left", "host_disconnected", "host_missing", "host_reclaimed"]);
+  if (!allowedReasons.has(hostChange.reason)) return;
+
+  const phase = room?.playbackState?.phase || "pending";
+  const recoveryKey = `${hostChange.changedAt}:${hostChange.reason}:${phase}:${room.currentRound}:${room.currentSongIndex}`;
+  if (recoveryKey === lastNativeReconnectRecoveryKey) return;
+
+  // Preserve explicit playback outcomes where possible. Only lift ambiguous
+  // reconnect states to "ready" so clients can safely continue.
+  let nextPhase = null;
+  if (phase === "pending" || phase === "launching") {
+    nextPhase = "ready";
+  }
+
+  lastNativeReconnectRecoveryKey = recoveryKey;
+  if (!nextPhase) return;
+
+  nativeBreadcrumb("reconnect:fallback", {
+    fromPhase: phase,
+    toPhase: nextPhase,
+    reason: hostChange.reason,
+    round: room.currentRound,
+    songIndex: room.currentSongIndex
+  });
+
+  try {
+    await setRoomPlaybackState(roomId, currentPlayerId, nextPhase, "system:host-reconnect-fallback");
+  } catch (e) {
+    nativeBreadcrumb("reconnect:fallback-error", { error: e?.message });
+    console.error("Native reconnect fallback update failed", e);
+  }
+}
+
 // -- Routing by room status ----------------------------------------------------
 
 function handleRoomUpdate(room) {
+  room = normalizeRoomPlaybackContext(room);
   const me = players.find(p => p.id === currentPlayerId);
   if (!me) {
     if (!hasLoadedPlayersSnapshot || !hasConfirmedPlayerPresence) {
@@ -1533,9 +1645,15 @@ function handleRoomUpdate(room) {
   }
 
   currentRoom = room;
+  const newMode = room.playbackMode || PLAYBACK_MODE_EMBED;
+  if (lastKnownPlaybackMode !== null && lastKnownPlaybackMode !== newMode) {
+    nativeBreadcrumb("mode:changed", { from: lastKnownPlaybackMode, to: newMode });
+  }
+  lastKnownPlaybackMode = newMode;
   updateScreenDeviceLayoutState();
   maybeReclaimHost(room);
   const isHost = !!me.isHost;
+  maybeRecoverNativePlaybackAfterReconnect(room, isHost);
 
   if (room.status !== "reveal") {
     revealScoresAppliedRound = -1;
@@ -1558,6 +1676,7 @@ function handleRoomUpdate(room) {
   updateClientPlaybackGuardLoop(room, isHost);
 
   if (room.status !== "playing") {
+    clearNativePlaybackStatusTimer();
     stopYouTubePlayback();
     exitScreenFullscreenIfNeeded();
     unlockLandscapeIfSupported();
@@ -2167,7 +2286,70 @@ function getPlayedSongsForRound(room) {
   return roundSongs.slice(0, playedCount);
 }
 
+function clearNativePlaybackStatusTimer() {
+  if (!nativePlaybackStatusTimer) return;
+  clearInterval(nativePlaybackStatusTimer);
+  nativePlaybackStatusTimer = null;
+}
+
+function getNativePlaybackPhaseLabel(phase) {
+  const phaseLabelMap = {
+    pending: "Waiting for host",
+    launching: "Host launching playback app",
+    ready: "Ready",
+    playing: "Playing",
+    paused: "Paused by host",
+    ended: "Song ended"
+  };
+
+  return phaseLabelMap[phase] || "Waiting for host";
+}
+
+function formatElapsedDuration(seconds) {
+  const total = Math.max(0, Number(seconds) || 0);
+  const mins = Math.floor(total / 60);
+  const secs = total % 60;
+  return `${mins}:${String(secs).padStart(2, "0")}`;
+}
+
+function setNativePlaybackStatusText(room, isHost) {
+  const statusEl = document.getElementById("youtube-player-status");
+  if (!statusEl) return;
+
+  const phase = room?.playbackState?.phase || "pending";
+  const phaseLabel = getNativePlaybackPhaseLabel(phase);
+  const updatedAt = Number(room?.playbackState?.updatedAt || 0);
+  const phaseElapsedSec = updatedAt > 0
+    ? Math.max(0, Math.floor((Date.now() - updatedAt) / 1000))
+    : 0;
+  const phaseDurationLabel = formatElapsedDuration(phaseElapsedSec);
+  const roleSuffix = isHost
+    ? "Host control is active in your native app."
+    : "Follow host playback updates.";
+
+  statusEl.textContent = `Native handoff: ${phaseLabel} • Phase time ${phaseDurationLabel} • ${roleSuffix}`;
+}
+
+function startNativePlaybackStatusTimer() {
+  if (nativePlaybackStatusTimer) return;
+
+  nativePlaybackStatusTimer = setInterval(() => {
+    if (!currentRoom || currentRoom.status !== "playing" || !isNativeHandoffPlaybackMode(currentRoom)) {
+      clearNativePlaybackStatusTimer();
+      return;
+    }
+
+    const me = players.find(p => p.id === currentPlayerId);
+    setNativePlaybackStatusText(currentRoom, !!me?.isHost);
+  }, 1000);
+}
+
 function hasStartedPlaybackForCurrentSong(room) {
+  if (isNativeHandoffPlaybackMode(room)) {
+    const phase = room?.playbackState?.phase || "pending";
+    return ["ready", "playing", "paused", "ended"].includes(phase);
+  }
+
   const playback = room?.playback;
   if (!playback) return false;
   if (playback.round !== room.currentRound) return false;
@@ -2176,6 +2358,16 @@ function hasStartedPlaybackForCurrentSong(room) {
 }
 
 function renderPlayingView(room, isHost) {
+  if (isNativeHandoffPlaybackMode(room)) {
+    renderPlayingViewNativeHandoff(room, isHost);
+    return;
+  }
+
+  renderPlayingViewEmbed(room, isHost);
+}
+
+function renderPlayingViewEmbed(room, isHost) {
+  clearNativePlaybackStatusTimer();
   const isScreenMode = isCurrentPlayerScreen();
   const shouldRenderPlayback = shouldRenderPlaybackForCurrentClient();
   const guessHint = document.querySelector(".guess-hint");
@@ -2208,6 +2400,32 @@ function renderPlayingView(room, isHost) {
       applyRoomPlayback(room);
     }
   }
+}
+
+function renderPlayingViewNativeHandoff(room, isHost) {
+  const isScreenMode = isCurrentPlayerScreen();
+  const guessHint = document.querySelector(".guess-hint");
+  if (guessHint) {
+    guessHint.style.display = isScreenMode ? "none" : "block";
+  }
+
+  const playerShell = document.querySelector(".youtube-player-shell");
+  if (playerShell) {
+    playerShell.style.display = "none";
+  }
+
+  nativeBreadcrumb("view:playing-native", {
+    phase: room?.playbackState?.phase || "pending",
+    isHost,
+    round: room?.currentRound,
+    songIndex: room?.currentSongIndex
+  });
+
+  stopYouTubePlayback();
+  renderNowPlayingBanner(room);
+  renderMasterPlaylist(room, isScreenMode);
+  setNativePlaybackStatusText(room, isHost);
+  startNativePlaybackStatusTimer();
 }
 
 function setYouTubeInteractionLock(isHost) {
@@ -2246,9 +2464,18 @@ function renderNowPlayingBanner(room) {
   }
 
   if (!hasStartedPlaybackForCurrentSong(room)) {
-    banner.textContent = "Playback leader has not started this song yet.";
+    if (isNativeHandoffPlaybackMode(room)) {
+      const phase = room?.playbackState?.phase || "pending";
+      banner.textContent = phase === "launching"
+        ? "Host is launching playback in native app..."
+        : "Waiting for host to start native playback...";
+    } else {
+      banner.textContent = "Playback leader has not started this song yet.";
+    }
     const statusEl = document.getElementById("youtube-player-status");
-    if (statusEl) statusEl.textContent = "Waiting for playback leader to start...";
+    if (statusEl && !isNativeHandoffPlaybackMode(room)) {
+      statusEl.textContent = "Waiting for playback leader to start...";
+    }
     return;
   }
 
@@ -2419,6 +2646,106 @@ function getRoundGuessProgress(roundSongs) {
   };
 }
 
+async function setNativePlaybackPhaseForHost(phase, source = "host:native-controls") {
+  nativeBreadcrumb("phase:transition", { phase, source, room: roomId });
+  await setRoomPlaybackState(roomId, currentPlayerId, phase, source);
+}
+
+function renderHostNativeHandoffControls(room, hostControls, roundSongs) {
+  if (room.allSongsPlayed) return false;
+
+  const phase = room?.playbackState?.phase || "pending";
+  const row = document.createElement("div");
+  row.className = "host-inline-controls-row";
+  hostControls.appendChild(row);
+
+  const openAppBtn = document.createElement("button");
+  openAppBtn.className = "secondary-btn compact-control-btn";
+  openAppBtn.textContent = "Open App";
+  openAppBtn.disabled = phase === "launching";
+  openAppBtn.onclick = async () => {
+    openAppBtn.disabled = true;
+    try {
+      await setNativePlaybackPhaseForHost("launching", "host:native-open-app");
+    } catch (e) {
+      alert("Could not update playback phase: " + (e?.message || "unknown error"));
+    }
+    openAppBtn.disabled = false;
+  };
+  row.appendChild(openAppBtn);
+
+  const startedBtn = document.createElement("button");
+  startedBtn.className = "secondary-btn compact-control-btn";
+  startedBtn.textContent = "Started";
+  startedBtn.disabled = phase === "playing";
+  startedBtn.onclick = async () => {
+    startedBtn.disabled = true;
+    try {
+      await setNativePlaybackPhaseForHost("playing", "host:native-started");
+    } catch (e) {
+      alert("Could not update playback phase: " + (e?.message || "unknown error"));
+    }
+    startedBtn.disabled = false;
+  };
+  row.appendChild(startedBtn);
+
+  const pauseBtn = document.createElement("button");
+  pauseBtn.className = "secondary-btn compact-control-btn";
+  pauseBtn.textContent = "Pause";
+  pauseBtn.disabled = phase === "paused" || phase === "ended";
+  pauseBtn.onclick = async () => {
+    pauseBtn.disabled = true;
+    try {
+      await setNativePlaybackPhaseForHost("paused", "host:native-pause");
+    } catch (e) {
+      alert("Could not update playback phase: " + (e?.message || "unknown error"));
+    }
+    pauseBtn.disabled = false;
+  };
+  row.appendChild(pauseBtn);
+
+  const resumeBtn = document.createElement("button");
+  resumeBtn.className = "secondary-btn compact-control-btn";
+  resumeBtn.textContent = "Resume";
+  resumeBtn.disabled = phase !== "paused";
+  resumeBtn.onclick = async () => {
+    resumeBtn.disabled = true;
+    try {
+      await setNativePlaybackPhaseForHost("playing", "host:native-resume");
+    } catch (e) {
+      alert("Could not update playback phase: " + (e?.message || "unknown error"));
+    }
+    resumeBtn.disabled = false;
+  };
+  row.appendChild(resumeBtn);
+
+  const nextBtn = document.createElement("button");
+  nextBtn.className = "host-btn compact-control-btn";
+  if (room.currentSongIndex < roundSongs.length - 1) {
+    nextBtn.textContent = "Next";
+    nextBtn.onclick = async () => {
+      nextBtn.disabled = true;
+      try {
+        await advanceSong(roomId, room.currentSongIndex + 1);
+      } catch (e) {
+        alert("Could not advance song: " + (e?.message || "unknown error"));
+      }
+      nextBtn.disabled = false;
+    };
+  } else {
+    nextBtn.textContent = "End Round";
+    nextBtn.onclick = () => markAllSongsPlayed(roomId);
+  }
+  row.appendChild(nextBtn);
+
+  const hint = document.createElement("div");
+  hint.className = "guess-progress";
+  hint.textContent = `Native phase: ${phase}`;
+  hostControls.appendChild(hint);
+
+  return true;
+}
+
 function renderHostPlayingControls(room, isHost) {
   const hostControls = document.getElementById("host-controls-inline");
   if (!hostControls) return;
@@ -2428,6 +2755,11 @@ function renderHostPlayingControls(room, isHost) {
 
   const roundSongs = getSongsForRound(room.currentRound);
   if (roundSongs.length === 0) return;
+
+  if (isNativeHandoffPlaybackMode(room)) {
+    const rendered = renderHostNativeHandoffControls(room, hostControls, roundSongs);
+    if (rendered) return;
+  }
 
   if (!room.allSongsPlayed) {
     const currentSong = roundSongs[room.currentSongIndex];

@@ -363,6 +363,50 @@ li { margin: 8px 0; line-height: 1.5; }
   font-size: 0.92rem;
 }
 
+.lobby-mode-picker {
+  margin: 10px 0 12px;
+}
+
+.lobby-mode-picker-label {
+  font-size: 0.8rem;
+  color: #a0aec0;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  margin-bottom: 6px;
+}
+
+.lobby-mode-picker-buttons {
+  display: flex;
+  gap: 8px;
+}
+
+.lobby-mode-btn {
+  flex: 1;
+  padding: 8px 12px;
+  border-radius: 8px;
+  border: 1px solid #3d4565;
+  background: #2b2f45;
+  color: #d0d6ea;
+  font-size: 0.88rem;
+  cursor: pointer;
+  transition: background 0.15s;
+}
+
+.lobby-mode-btn:hover:not(:disabled) {
+  background: #373f5c;
+}
+
+.lobby-mode-btn-active {
+  background: #7c3aed;
+  border-color: #9b5cf6;
+  color: #fff;
+  cursor: default;
+}
+
+.lobby-mode-btn-active:hover {
+  background: #7c3aed;
+}
+
 #player-list {
   list-style: none;
   padding-left: 0;

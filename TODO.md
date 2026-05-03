@@ -2,10 +2,10 @@
 
 ## Bugs
 
-- [ ] **Fix player video playback stopping** *(Priority: Medium)* — complete remaining per-song seek interruption fix around the 3s mark.
+- [x] **Fix player video playback stopping** *(Priority: Medium)* — complete remaining per-song seek interruption fix around the 3s mark.
 
 ## Core Features
-- [ ] **Dedicated playback device mode** — special "screen" join role: plays audio/video only, no guessing UI. Intended for TV/Chromecast in-person scenarios where players watch together but guess on their own phones.
+- [x] **Dedicated playback device mode** — special "screen" join role: plays audio/video only, no guessing UI. Intended for TV/Chromecast in-person scenarios where players watch together but guess on their own phones.
 
 - [ ] **Roadtrip safe driver mode** *(Priority: Medium)* — driver joins with a low-distraction "car screen" flow and is forced into playback-only screen role (no guessing). Driver device should be the only audio output target (Bluetooth/CarPlay/Android Auto). Host controls must stay with a passenger.
 	- Acceptance criteria:
@@ -15,7 +15,7 @@
 	- Playback-only driver screen shows only essential controls/status (connect, playing, volume guidance).
 	- If driver disconnects, room falls back safely to passenger playback device selection.
 
-- [ ] **Unique player assignment per round** — during song assignment, do not allow selecting the same player for every song in a round. Enforce a one-to-one mapping so each song is assigned to a different player within that round.
+- [x] **Unique player assignment per round** — during song assignment, do not allow selecting the same player for every song in a round. Enforce a one-to-one mapping so each song is assigned to a different player within that round.
 
 - [ ] **Party mode** — no rounds, no scoring, just a shared collaborative song queue anyone can add to. Basically a jukebox mode alongside the existing Game mode.
 
@@ -28,6 +28,10 @@
 	- In native mode, players still submit guesses using the same round/song metadata flow.
 	- If host exits native controls mid-round, room safely falls back to metadata status without client crashes.
 	- Existing scoring, reveal, and round transitions remain unchanged.
+	- Exploration notes:
+	- Current room state already has `playback`, `playbackConfig`, and `playbackLeaderPlayerId`; treat these as the compatibility base instead of replacing them in one pass.
+	- Keep `embed` as a guarded fallback path until parity + QA checklist is complete.
+	- Preserve existing `screen` role behavior; native handoff should layer on top of role gating, not bypass it.
 
 ## Single Player Modes
 
@@ -82,15 +86,19 @@
 - [ ] **[120m] Song pool source - phase 2 automation** — schedule ingestion/validation job (nightly) with dedupe + embeddability checks.
 
 ### Next Session Plan (Native Handoff)
-- [ ] **[45m] Room schema + defaults** — add `playbackMode`, `playbackState`, and mode-safe defaults in room create/reset lifecycle.
-- [ ] **[90m] Playing view branching** — split render path by `playbackMode`; keep existing embed renderer untouched for `embed`.
-- [ ] **[120m] Host native control panel** — add host buttons (`Open App`, `Started`, `Pause`, `Resume`, `Next`) that write canonical playback phase/state.
-- [ ] **[60m] Player native status UI** — show song metadata + host status banner/timers in native mode (no iframe dependency).
-- [ ] **[45m] Guess flow parity check** — confirm native mode uses existing guess submit/validation/reveal with no scoring regressions.
-- [ ] **[60m] Reconnect + fallback handling** — if host disconnects/rejoins, preserve phase state and recover UI safely.
-- [ ] **[45m] QA matrix run** — verify host/player/screen roles across both modes for one full game cycle.
-- [ ] **[45m] Host mode picker UI** — add host-only mode selector (Embed vs Native Handoff) in setup/lobby and persist to room.
-- [ ] **[30m] Default mode flip for new rooms** — set `native_handoff` as the default `playbackMode` on room creation while keeping a temporary fallback flag for existing embed rooms.
+- [x] **[30m] Discovery spike: playback coupling map** — inventory all places that read/write `room.playback` and YouTube player state so native handoff can reuse timing/scoring triggers. *(Done 2026-05-03: see `docs/native-handoff-playback-coupling-map.md`.)*
+- [x] **[45m] Room schema + defaults** — add `playbackMode`, `playbackState`, and mode-safe defaults in room create/reset lifecycle. *(Done 2026-05-03 in `js/api.js`.)*
+- [x] **[60m] Backward-compat migration guard** — ensure old rooms without `playbackMode`/`playbackState` auto-resolve to `embed` defaults. *(Done 2026-05-03 in `js/game-logic.js`.)*
+- [x] **[90m] Playing view branching** — split render path by `playbackMode`; keep existing embed renderer untouched for `embed`. *(Done 2026-05-03 in `js/game-logic.js`.)*
+- [x] **[120m] Host native control panel** — add host buttons (`Open App`, `Started`, `Pause`, `Resume`, `Next`) that write canonical playback phase/state. *(Done 2026-05-03 in `js/api.js` + `js/game-logic.js`.)*
+- [x] **[60m] Player native status UI** — show song metadata + host status banner/timers in native mode (no iframe dependency). *(Done 2026-05-03 in `js/game-logic.js`.)*
+- [x] **[45m] Guess flow parity check** — confirm native mode uses existing guess submit/validation/reveal with no scoring regressions. *(Done 2026-05-03: see `docs/native-handoff-guess-flow-parity-check.md`.)*
+- [x] **[60m] Reconnect + fallback handling** — if host disconnects/rejoins, preserve phase state and recover UI safely. *(Done 2026-05-03: see `docs/native-handoff-reconnect-fallback-notes.md`.)*
+- [x] **[45m] Host mode picker UI** — add host-only mode selector (Embed vs Native Handoff) in setup/lobby and persist to room. *(Done 2026-05-03 in `js/api.js`, `js/ui.js`, `game.html`, `css/styles.css`.)*
+- [x] **[45m] Telemetry + failure breadcrumbs** — add lightweight logs/markers for phase transitions, reconnects, and fallback activations. *(Done 2026-05-03 in `js/game-logic.js`.)*
+- [ ] **[45m] QA matrix run** — verify host/player/screen roles across both modes for one full game cycle. *(See QA matrix below — manual run required.)*
+- [x] **[30m] Default mode flip for new rooms** — set `native_handoff` as the default `playbackMode` on room creation while keeping a temporary fallback flag for existing embed rooms. *(Done 2026-05-03 in `js/api.js`: `playbackMode: "native_handoff"`, `playbackModeFallbackEnabled: true`.)*
+- [ ] **[30m] Embed fallback retirement checkpoint** — only remove temporary fallback flag after two clean QA passes.
 
 ### Medium
 - [ ] Fix player video playback stopping

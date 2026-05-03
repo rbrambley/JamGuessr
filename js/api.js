@@ -4,6 +4,30 @@ function nowMs() {
   return Date.now();
 }
 
+function normalizePlaybackMode(mode) {
+  return mode === "native_handoff" ? "native_handoff" : "embed";
+}
+
+function buildPlaybackState(phase = "pending", source = null) {
+  return {
+    phase,
+    updatedAt: nowMs(),
+    source
+  };
+}
+
+function derivePlaybackStatePhase(playback) {
+  if (!playback) return "pending";
+  if (playback.status === "paused") return "paused";
+  if (playback.status === "playing") return "playing";
+  return "ready";
+}
+
+function normalizePlaybackStatePhase(phase) {
+  const allowed = new Set(["pending", "launching", "ready", "playing", "paused", "ended"]);
+  return allowed.has(phase) ? phase : "pending";
+}
+
 const PLAYER_STALE_AFTER_MS = 25000;
 const HOST_STALE_AFTER_MS = 5 * 60 * 1000;
 const HOST_RECLAIM_WINDOW_MS = 10 * 60 * 1000;
@@ -13,6 +37,21 @@ function withRoomActivity(patch = {}) {
     ...patch,
     lastActivityAt: nowMs()
   };
+}
+
+async function ensureAuthenticatedUid() {
+  const auth = firebase.auth();
+  if (auth.currentUser?.uid) {
+    return auth.currentUser.uid;
+  }
+
+  await auth.signInAnonymously();
+
+  if (!auth.currentUser?.uid) {
+    throw new Error("Authentication failed. Please refresh and try again.");
+  }
+
+  return auth.currentUser.uid;
 }
 
 function resolvePlaybackLeaderIdFromPlayerData(playersData = []) {
@@ -26,44 +65,64 @@ function resolvePlaybackLeaderIdFromPlayerData(playersData = []) {
 }
 
 async function createRoom(hostName, maxRounds) {
+  const uid = await ensureAuthenticatedUid();
   const code = Math.random().toString(36).substring(2, 6).toUpperCase();
   const now = nowMs();
-  const roomRef = await db.collection("rooms").add({
-    code,
-    hostName,
-    maxRounds,
-    status: "lobby",
-    currentRound: 1,
-    currentSongIndex: 0,
-    allSongsPlayed: false,
-    playbackConfig: {
-      autoplayEnabled: false,
-      adPacingMode: "normal"
-    },
-    createdAt: now,
-    lastActivityAt: now,
-    roundPerkAppliedRound: null
-  });
-  // Add host as first player
-  const playerRef = await db.collection("rooms").doc(roomRef.id)
-    .collection("players").add({
-      name: hostName,
-      role: "player",
-      score: 0,
-      isHost: true,
-      submitted: false,
-      lastSeen: Date.now(),
-      joinedAt: Date.now()
+  let roomRef;
+  try {
+    roomRef = await db.collection("rooms").add({
+      code,
+      hostName,
+      hostId: uid,
+      maxRounds,
+      status: "lobby",
+      currentRound: 1,
+      currentSongIndex: 0,
+      allSongsPlayed: false,
+      playbackMode: "native_handoff",
+      playbackModeFallbackEnabled: true,
+      playbackState: {
+        phase: "pending",
+        updatedAt: now,
+        source: "system:create-room"
+      },
+      playbackConfig: {
+        autoplayEnabled: false,
+        adPacingMode: "normal"
+      },
+      playbackLeaderPlayerId: uid,
+      createdAt: now,
+      lastActivityAt: now,
+      roundPerkAppliedRound: null
     });
+  } catch (e) {
+    throw new Error(`Could not create room document. Check Firestore rules for /rooms create. ${e?.message || ""}`.trim());
+  }
+  // Add host as first player
+  try {
+    await db.collection("rooms").doc(roomRef.id)
+      .collection("players").doc(uid).set({
+        name: hostName,
+        role: "player",
+        score: 0,
+        isHost: true,
+        submitted: false,
+        lastSeen: Date.now(),
+        joinedAt: Date.now()
+      });
+  } catch (e) {
+    throw new Error(`Room created, but could not create host player document. Check Firestore rules for /rooms/{roomId}/players/{uid}. ${e?.message || ""}`.trim());
+  }
+
   // Persist IDs locally
-  await roomRef.update(withRoomActivity({ playbackLeaderPlayerId: playerRef.id }));
   localStorage.setItem("jamguessr_roomId", roomRef.id);
-  sessionStorage.setItem("jamguessr_playerId", playerRef.id);
+  sessionStorage.setItem("jamguessr_playerId", uid);
   localStorage.removeItem("jamguessr_playerId");
   return roomRef.id;
 }
 
 async function joinRoom(code, playerName) {
+  const uid = await ensureAuthenticatedUid();
   const snap = await db.collection("rooms").where("code", "==", code).get();
   if (snap.empty) throw new Error("Room not found. Check the code and try again.");
 
@@ -74,21 +133,25 @@ async function joinRoom(code, playerName) {
     throw new Error("This game has already started.");
   }
 
-  const playerRef = await db.collection("rooms").doc(roomId)
-    .collection("players").add({
-      name: playerName,
-      role: "player",
-      score: 0,
-      isHost: false,
-      submitted: false,
-      lastSeen: Date.now(),
-      joinedAt: Date.now()
-    });
+  try {
+    await db.collection("rooms").doc(roomId)
+      .collection("players").doc(uid).set({
+        name: playerName,
+        role: "player",
+        score: 0,
+        isHost: false,
+        submitted: false,
+        lastSeen: Date.now(),
+        joinedAt: Date.now()
+      });
+  } catch (e) {
+    throw new Error(`Could not create player document for this user. Check Firestore rules for /rooms/{roomId}/players/{uid}. ${e?.message || ""}`.trim());
+  }
 
   await db.collection("rooms").doc(roomId).update(withRoomActivity());
 
   localStorage.setItem("jamguessr_roomId", roomId);
-  sessionStorage.setItem("jamguessr_playerId", playerRef.id);
+  sessionStorage.setItem("jamguessr_playerId", uid);
   localStorage.removeItem("jamguessr_playerId");
   return roomId;
 }
@@ -198,7 +261,12 @@ async function startGame(roomId) {
 
 async function startPlaying(roomId) {
   const roomRef = db.collection("rooms").doc(roomId);
-  const playersSnap = await roomRef.collection("players").orderBy("joinedAt", "asc").get();
+  const [roomDoc, playersSnap] = await Promise.all([
+    roomRef.get(),
+    roomRef.collection("players").orderBy("joinedAt", "asc").get()
+  ]);
+  const roomData = roomDoc.exists ? (roomDoc.data() || {}) : {};
+  const playbackMode = normalizePlaybackMode(roomData.playbackMode);
   const playersData = playersSnap.docs.map(doc => ({ id: doc.id, ...(doc.data() || {}) }));
   const nextLeaderId = resolvePlaybackLeaderIdFromPlayerData(playersData);
 
@@ -206,6 +274,8 @@ async function startPlaying(roomId) {
     status: "playing",
     currentSongIndex: 0,
     allSongsPlayed: false,
+    playbackMode,
+    playbackState: buildPlaybackState("pending", "system:start-playing"),
     playback: null,
     playbackLeaderPlayerId: nextLeaderId,
     playbackConfig: {
@@ -286,7 +356,12 @@ async function setPerfectRoundPerk(roomId, playerId, perkType, targetPlayerId = 
 
 async function nextRound(roomId, nextRound) {
   const roomRef = db.collection("rooms").doc(roomId);
-  const playersSnap = await roomRef.collection("players").get();
+  const [roomDoc, playersSnap] = await Promise.all([
+    roomRef.get(),
+    roomRef.collection("players").get()
+  ]);
+  const roomData = roomDoc.exists ? (roomDoc.data() || {}) : {};
+  const playbackMode = normalizePlaybackMode(roomData.playbackMode);
   const batch = db.batch();
 
   playersSnap.docs.forEach(doc => {
@@ -298,6 +373,8 @@ async function nextRound(roomId, nextRound) {
     currentRound: nextRound,
     currentSongIndex: 0,
     allSongsPlayed: false,
+    playbackMode,
+    playbackState: buildPlaybackState("pending", "system:next-round"),
     playback: null,
     lastActivityAt: nowMs(),
     revealScoredRound: null,
@@ -430,6 +507,7 @@ async function advanceSong(roomId, nextIndex) {
   await db.collection("rooms").doc(roomId).update({
     currentSongIndex: nextIndex,
     status: "playing",
+    playbackState: buildPlaybackState("pending", "system:advance-song"),
     playback: null,
     lastActivityAt: nowMs()
   });
@@ -466,7 +544,10 @@ async function syncRoomPlayback(roomId, actorId, playback) {
     }
 
     if ((actorData.role || "player") === "screen" || !!actorData.isHost) {
-      tx.update(roomRef, withRoomActivity({ playback }));
+      tx.update(roomRef, withRoomActivity({
+        playback,
+        playbackState: buildPlaybackState(derivePlaybackStatePhase(playback), "leader:sync")
+      }));
       return;
     }
 
@@ -474,18 +555,79 @@ async function syncRoomPlayback(roomId, actorId, playback) {
   });
 }
 
+async function setRoomPlaybackState(roomId, actorId, phase, source = "host:manual") {
+  const roomRef = db.collection("rooms").doc(roomId);
+  const actorRef = roomRef.collection("players").doc(actorId);
+
+  await db.runTransaction(async tx => {
+    const [roomDoc, actorDoc] = await Promise.all([
+      tx.get(roomRef),
+      tx.get(actorRef)
+    ]);
+
+    if (!roomDoc.exists) {
+      throw new Error("Room not found.");
+    }
+
+    if (!actorDoc.exists) {
+      throw new Error("Host session not found.");
+    }
+
+    const actor = actorDoc.data() || {};
+    if (!actor.isHost) {
+      throw new Error("Only the host can update playback state.");
+    }
+
+    tx.update(roomRef, withRoomActivity({
+      playbackState: {
+        phase: normalizePlaybackStatePhase(phase),
+        updatedAt: nowMs(),
+        source: source || "host:manual"
+      }
+    }));
+  });
+}
+
+async function setRoomPlaybackMode(roomId, actorId, mode) {
+  const roomRef = db.collection("rooms").doc(roomId);
+  const actorRef = roomRef.collection("players").doc(actorId);
+
+  await db.runTransaction(async tx => {
+    const [roomDoc, actorDoc] = await Promise.all([
+      tx.get(roomRef),
+      tx.get(actorRef)
+    ]);
+
+    if (!roomDoc.exists) throw new Error("Room not found.");
+    if (!actorDoc.exists) throw new Error("Host session not found.");
+
+    const actor = actorDoc.data() || {};
+    if (!actor.isHost) throw new Error("Only the host can change playback mode.");
+
+    tx.update(roomRef, withRoomActivity({
+      playbackMode: normalizePlaybackMode(mode)
+    }));
+  });
+}
+
 async function markAllSongsPlayed(roomId) {
-  await db.collection("rooms").doc(roomId).update(withRoomActivity({ allSongsPlayed: true }));
+  await db.collection("rooms").doc(roomId).update(withRoomActivity({
+    allSongsPlayed: true,
+    playbackState: buildPlaybackState("ended", "system:all-songs-played")
+  }));
 }
 
 async function resetGame(roomId) {
   const roomRef = db.collection("rooms").doc(roomId);
 
-  const [playersSnap, songsSnap, guessesSnap] = await Promise.all([
+  const [roomDoc, playersSnap, songsSnap, guessesSnap] = await Promise.all([
+    roomRef.get(),
     roomRef.collection("players").get(),
     roomRef.collection("songs").get(),
     roomRef.collection("guesses").get()
   ]);
+  const roomData = roomDoc.exists ? (roomDoc.data() || {}) : {};
+  const playbackMode = normalizePlaybackMode(roomData.playbackMode);
 
   const batch = db.batch();
 
@@ -516,6 +658,8 @@ async function resetGame(roomId) {
     currentRound: 1,
     currentSongIndex: 0,
     allSongsPlayed: false,
+    playbackMode,
+    playbackState: buildPlaybackState("pending", "system:reset-game"),
     playback: null,
     playbackLeaderPlayerId: nextLeaderId,
     playbackConfig: {
