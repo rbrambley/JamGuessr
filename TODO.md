@@ -96,7 +96,7 @@
 - [x] **[60m] Reconnect + fallback handling** — if host disconnects/rejoins, preserve phase state and recover UI safely. *(Done 2026-05-03: see `docs/native-handoff-reconnect-fallback-notes.md`.)*
 - [x] **[45m] Host mode picker UI** — add host-only mode selector (Embed vs Native Handoff) in setup/lobby and persist to room. *(Done 2026-05-03 in `js/api.js`, `js/ui.js`, `game.html`, `css/styles.css`.)*
 - [x] **[45m] Telemetry + failure breadcrumbs** — add lightweight logs/markers for phase transitions, reconnects, and fallback activations. *(Done 2026-05-03 in `js/game-logic.js`.)*
-- [ ] **[45m] QA matrix run** — verify host/player/screen roles across both modes for one full game cycle. *(See QA matrix below — manual run required.)*
+- [ ] **[45m] QA matrix run** — verify host/player/screen roles across both modes for one full game cycle. *(See `docs/native-handoff-qa-matrix.md` — manual run required.)*
 - [x] **[30m] Default mode flip for new rooms** — set `native_handoff` as the default `playbackMode` on room creation while keeping a temporary fallback flag for existing embed rooms. *(Done 2026-05-03 in `js/api.js`: `playbackMode: "native_handoff"`, `playbackModeFallbackEnabled: true`.)*
 - [ ] **[30m] Embed fallback retirement checkpoint** — only remove temporary fallback flag after two clean QA passes.
 
