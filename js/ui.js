@@ -188,11 +188,13 @@ function renderLobbyPlaybackModePicker(isHost, room) {
       <div class="lobby-mode-picker-buttons">
         <button type="button"
           class="lobby-mode-btn${currentMode === "embed" ? " lobby-mode-btn-active" : ""}"
+          ${currentMode === "embed" ? "disabled aria-disabled=\"true\"" : ""}
           data-mode="embed">
           YouTube Embed
         </button>
         <button type="button"
           class="lobby-mode-btn${currentMode === "native_handoff" ? " lobby-mode-btn-active" : ""}"
+          ${currentMode === "native_handoff" ? "disabled aria-disabled=\"true\"" : ""}
           data-mode="native_handoff">
           Native App Handoff
         </button>
