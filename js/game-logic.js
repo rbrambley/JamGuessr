@@ -2167,7 +2167,7 @@ function renderSongInputs(currentRound, maxRounds) {
 
   if (me?.submitted) {
     const isHost = !!me?.isHost;
-    if (isHost) watchForAllSubmissions();
+    if (isHost) watchForAllSubmissions(currentRound);
 
     submitBtn.style.display = "none";
     waitingMsg.style.display = "block";
@@ -2205,7 +2205,7 @@ function renderSongInputs(currentRound, maxRounds) {
       renderSelectedSong();
 
       const isHost = players.find(p => p.id === currentPlayerId)?.isHost;
-      if (isHost) watchForAllSubmissions();
+      if (isHost) watchForAllSubmissions(currentRound);
     } catch (e) {
       submitBtn.disabled = false;
       alert(e?.message || "Could not submit your song.");
@@ -2213,7 +2213,7 @@ function renderSongInputs(currentRound, maxRounds) {
   };
 }
 
-function watchForAllSubmissions() {
+function watchForAllSubmissions(targetRound) {
   if (allSubmissionsUnsub) return;
 
   allSubmissionsUnsub = db.collection("rooms").doc(roomId).collection("players")
@@ -2223,10 +2223,17 @@ function watchForAllSubmissions() {
       if (participants.length > 0 && participants.every(player => !!player.submitted)) {
         // Validation: Ensure unique player assignment per round
         try {
+          const roundToValidate = Number.isFinite(Number(targetRound))
+            ? Number(targetRound)
+            : Number(currentRoom?.currentRound);
+          if (!Number.isFinite(roundToValidate)) {
+            throw new Error("Could not determine current round for assignment validation.");
+          }
+
           const songsSnap = await db.collection("rooms").doc(roomId).collection("songs").get();
           const currentRoundSongs = songsSnap.docs
             .map(doc => doc.data())
-            .filter(song => song.round === currentRound);
+            .filter(song => Number(song.round) === roundToValidate);
           const pickedBySet = new Set();
           let duplicateFound = false;
           for (const song of currentRoundSongs) {
