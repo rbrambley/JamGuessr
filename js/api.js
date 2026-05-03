@@ -148,8 +148,6 @@ async function joinRoom(code, playerName) {
     throw new Error(`Could not create player document for this user. Check Firestore rules for /rooms/{roomId}/players/{uid}. ${e?.message || ""}`.trim());
   }
 
-  await db.collection("rooms").doc(roomId).update(withRoomActivity());
-
   localStorage.setItem("jamguessr_roomId", roomId);
   sessionStorage.setItem("jamguessr_playerId", uid);
   localStorage.removeItem("jamguessr_playerId");
