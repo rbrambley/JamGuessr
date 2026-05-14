@@ -13,6 +13,7 @@ const SEARCH_FETCH_CANDIDATES = 15;
 const MUSIC_CATEGORY_ID = "10";
 const MAX_VIDEO_DURATION_SECONDS = 12 * 60;
 const MIN_VIDEO_DURATION_SECONDS = 75;
+const ROOT_DIR = __dirname;
 const CACHE_TTL_MS = Number(process.env.SEARCH_CACHE_TTL_MS || (7 * 24 * 60 * 60 * 1000));
 const NEGATIVE_CACHE_TTL_MS = Number(process.env.SEARCH_NEGATIVE_CACHE_TTL_MS || (6 * 60 * 60 * 1000));
 const CACHE_PERSIST_FILE = process.env.SEARCH_CACHE_FILE || path.join(ROOT_DIR, ".cache", "youtube-search-cache.json");
@@ -24,7 +25,6 @@ const QUOTA_DAILY_BUDGET_UNITS = Number(process.env.YOUTUBE_DAILY_BUDGET_UNITS |
 const QUOTA_GUARD_THRESHOLD_UNITS = Number(
   process.env.YOUTUBE_QUOTA_GUARD_THRESHOLD_UNITS || Math.floor(QUOTA_DAILY_BUDGET_UNITS * 0.85)
 );
-const ROOT_DIR = __dirname;
 const CLEANUP_INTERVAL_MS = Number(process.env.ROOM_CLEANUP_INTERVAL_MS || (5 * 60 * 1000));
 const CLEANUP_SCAN_LIMIT = Number(process.env.ROOM_CLEANUP_SCAN_LIMIT || 200);
 const CLEANUP_MAX_DELETE_PER_RUN = Number(process.env.ROOM_CLEANUP_MAX_DELETE_PER_RUN || 25);

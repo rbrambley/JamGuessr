@@ -1596,7 +1596,13 @@ async function maybeRecoverNativePlaybackAfterReconnect(room, isHost) {
   });
 
   try {
-    await setRoomPlaybackState(roomId, currentPlayerId, nextPhase, "system:host-reconnect-fallback");
+    await setRoomPlaybackState(
+      roomId,
+      currentPlayerId,
+      nextPhase,
+      "system:host-reconnect-fallback",
+      { expectedFromPhases: ["pending", "launching"] }
+    );
   } catch (e) {
     nativeBreadcrumb("reconnect:fallback-error", { error: e?.message });
     console.error("Native reconnect fallback update failed", e);

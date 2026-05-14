@@ -28,6 +28,55 @@ function normalizePlaybackStatePhase(phase) {
   return allowed.has(phase) ? phase : "pending";
 }
 
+const RETRYABLE_PLAYBACK_PHASE_ERROR_CODES = new Set([
+  "aborted",
+  "failed-precondition",
+  "deadline-exceeded",
+  "resource-exhausted",
+  "unavailable"
+]);
+const DEFAULT_PLAYBACK_PHASE_MAX_RETRIES = 3;
+const PLAYBACK_PHASE_RETRY_BASE_DELAY_MS = 60;
+
+function sleepMs(ms) {
+  return new Promise(resolve => setTimeout(resolve, ms));
+}
+
+function normalizeFirestoreErrorCode(code) {
+  const raw = String(code || "").trim().toLowerCase();
+  if (!raw) return "";
+  if (raw.includes("/")) {
+    const parts = raw.split("/");
+    return parts[parts.length - 1] || raw;
+  }
+  return raw;
+}
+
+function isRetryablePlaybackPhaseError(error) {
+  const code = normalizeFirestoreErrorCode(error?.code);
+  return RETRYABLE_PLAYBACK_PHASE_ERROR_CODES.has(code);
+}
+
+function normalizePlaybackPhaseWriteOptions(options = {}) {
+  const expectedFromPhases = Array.isArray(options.expectedFromPhases)
+    ? options.expectedFromPhases
+      .map(normalizePlaybackStatePhase)
+      .filter(Boolean)
+    : null;
+  const maxRetriesRaw = Number(options.maxRetries);
+  const maxRetries = Number.isFinite(maxRetriesRaw)
+    ? Math.max(0, Math.min(6, Math.floor(maxRetriesRaw)))
+    : DEFAULT_PLAYBACK_PHASE_MAX_RETRIES;
+
+  return {
+    expectedFromPhaseSet: expectedFromPhases && expectedFromPhases.length > 0
+      ? new Set(expectedFromPhases)
+      : null,
+    force: !!options.force,
+    maxRetries
+  };
+}
+
 const PLAYER_STALE_AFTER_MS = 25000;
 const HOST_STALE_AFTER_MS = 5 * 60 * 1000;
 const HOST_RECLAIM_WINDOW_MS = 10 * 60 * 1000;
@@ -553,37 +602,77 @@ async function syncRoomPlayback(roomId, actorId, playback) {
   });
 }
 
-async function setRoomPlaybackState(roomId, actorId, phase, source = "host:manual") {
+async function setRoomPlaybackState(roomId, actorId, phase, source = "host:manual", options = {}) {
   const roomRef = db.collection("rooms").doc(roomId);
   const actorRef = roomRef.collection("players").doc(actorId);
+  const nextPhase = normalizePlaybackStatePhase(phase);
+  const nextSource = source || "host:manual";
+  const writeOptions = normalizePlaybackPhaseWriteOptions(options);
 
-  await db.runTransaction(async tx => {
-    const [roomDoc, actorDoc] = await Promise.all([
-      tx.get(roomRef),
-      tx.get(actorRef)
-    ]);
+  for (let attempt = 0; attempt <= writeOptions.maxRetries; attempt += 1) {
+    try {
+      const [roomDoc, actorDoc] = await Promise.all([
+        roomRef.get(),
+        actorRef.get()
+      ]);
 
-    if (!roomDoc.exists) {
-      throw new Error("Room not found.");
-    }
-
-    if (!actorDoc.exists) {
-      throw new Error("Host session not found.");
-    }
-
-    const actor = actorDoc.data() || {};
-    if (!actor.isHost) {
-      throw new Error("Only the host can update playback state.");
-    }
-
-    tx.update(roomRef, withRoomActivity({
-      playbackState: {
-        phase: normalizePlaybackStatePhase(phase),
-        updatedAt: nowMs(),
-        source: source || "host:manual"
+      if (!roomDoc.exists) {
+        throw new Error("Room not found.");
       }
-    }));
-  });
+
+      if (!actorDoc.exists) {
+        throw new Error("Host session not found.");
+      }
+
+      const actor = actorDoc.data() || {};
+      if (!actor.isHost) {
+        throw new Error("Only the host can update playback state.");
+      }
+
+      const roomData = roomDoc.data() || {};
+      const currentPhase = normalizePlaybackStatePhase(roomData?.playbackState?.phase);
+
+      if (writeOptions.expectedFromPhaseSet && !writeOptions.expectedFromPhaseSet.has(currentPhase)) {
+        return {
+          applied: false,
+          reason: "phase-mismatch",
+          currentPhase
+        };
+      }
+
+      if (!writeOptions.force && currentPhase === nextPhase) {
+        return {
+          applied: false,
+          reason: "already-set",
+          currentPhase
+        };
+      }
+
+      await roomRef.update(withRoomActivity({
+        playbackState: {
+          phase: nextPhase,
+          updatedAt: nowMs(),
+          source: nextSource
+        }
+      }));
+
+      return {
+        applied: true,
+        fromPhase: currentPhase,
+        toPhase: nextPhase
+      };
+    } catch (error) {
+      const shouldRetry = attempt < writeOptions.maxRetries && isRetryablePlaybackPhaseError(error);
+      if (!shouldRetry) {
+        throw error;
+      }
+
+      const delayMs = (PLAYBACK_PHASE_RETRY_BASE_DELAY_MS * (2 ** attempt)) + Math.floor(Math.random() * 40);
+      await sleepMs(delayMs);
+    }
+  }
+
+  throw new Error("Playback phase update failed unexpectedly.");
 }
 
 async function setRoomPlaybackMode(roomId, actorId, mode) {
