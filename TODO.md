@@ -100,6 +100,17 @@
 - [x] **[30m] Default mode flip for new rooms** — set `native_handoff` as the default `playbackMode` on room creation while keeping a temporary fallback flag for existing embed rooms. *(Done 2026-05-03 in `js/api.js`: `playbackMode: "native_handoff"`, `playbackModeFallbackEnabled: true`.)*
 - [ ] **[30m] Embed fallback retirement checkpoint** — only remove temporary fallback flag after two clean QA passes.
 
+### Native Playlist Handoff Plan (Saved for Later)
+- [ ] **[45m] Round export contract** — define canonical export payload for host handoff (`json` primary, plus `csv` fallback) containing ordered round songs, picker metadata, and matching fields (`title`, `artist`, `album?`, `duration?`, `youtubeVideoId`, `youtubeUrl`, provider IDs if known).
+- [ ] **[60m] Export generation + download** — add end-of-round or end-of-game export action that downloads `json` + `csv` bundle from the current room state.
+- [ ] **[90m] Host Queue Assistant (MVP)** — add a lightweight host page that loads export data and renders one-tap provider searches per song (Spotify, Apple Music, YouTube Music) with queue progress markers (`queued`, `playing`, `done`).
+- [ ] **[45m] Native phase integration** — connect Queue Assistant actions to native handoff phase writes so room status still syncs (`launching` -> `ready` -> `playing` -> `paused` -> `ended`) while host controls playback externally.
+- [ ] **[45m] Search quality + match resilience** — improve matching quality with optional enrichment fields (`isrc`, normalized title/artist, aliases) and preserve unresolved rows for manual confirmation.
+- [ ] **[30m] QR handoff shortcut** — generate a room/round QR that opens Queue Assistant with preloaded payload on the host playback device.
+- [ ] **[120m] Spotify connected handoff (phase 2)** — OAuth connect + create playlist + add tracks + open native Spotify app to playlist.
+- [ ] **[180m] Apple Music connected handoff (phase 3)** — MusicKit/account integration for playlist creation/open flow.
+- [ ] **[60m] YouTube Music assisted-only path** — keep YouTube Music in assisted mode (search/open links) when full automatic playlist injection is not available.
+
 ### Medium
 - [ ] Fix player video playback stopping
 - [ ] Roadtrip safe driver mode
