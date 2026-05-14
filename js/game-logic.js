@@ -2659,6 +2659,61 @@ function getRoundGuessProgress(roundSongs) {
   };
 }
 
+function getCurrentNativeLaunchSong(room, roundSongs) {
+  if (!Array.isArray(roundSongs) || roundSongs.length === 0) return null;
+
+  const index = Number(room?.currentSongIndex);
+  if (Number.isInteger(index) && index >= 0 && index < roundSongs.length) {
+    return roundSongs[index];
+  }
+
+  return roundSongs[0];
+}
+
+function buildNativeLaunchUrlList(song) {
+  if (!song || typeof song !== "object") return [];
+
+  const urls = [];
+  const addUrl = value => {
+    if (typeof value !== "string") return;
+    const trimmed = value.trim();
+    if (!trimmed) return;
+    if (urls.includes(trimmed)) return;
+    urls.push(trimmed);
+  };
+
+  addUrl(song.nativeLaunchUrl);
+  addUrl(song.youtubeUrl);
+
+  if (song.youtubeVideoId) {
+    addUrl(`https://www.youtube.com/watch?v=${song.youtubeVideoId}`);
+    addUrl(`https://music.youtube.com/watch?v=${song.youtubeVideoId}`);
+  }
+
+  return urls;
+}
+
+function tryOpenNativeLaunchUrl(url) {
+  try {
+    const opened = window.open(url, "_blank", "noopener,noreferrer");
+    return !!opened;
+  } catch (_) {
+    return false;
+  }
+}
+
+function tryLaunchCurrentSongInNativeApp(room, roundSongs) {
+  const song = getCurrentNativeLaunchSong(room, roundSongs);
+  const urlList = buildNativeLaunchUrlList(song);
+  if (urlList.length === 0) {
+    return { attempted: false, launched: false, url: null };
+  }
+
+  const launchUrl = urlList[0];
+  const launched = tryOpenNativeLaunchUrl(launchUrl);
+  return { attempted: true, launched, url: launchUrl };
+}
+
 async function setNativePlaybackPhaseForHost(phase, source = "host:native-controls") {
   nativeBreadcrumb("phase:transition", { phase, source, room: roomId });
   await setRoomPlaybackState(roomId, currentPlayerId, phase, source);
@@ -2678,6 +2733,19 @@ function renderHostNativeHandoffControls(room, hostControls, roundSongs) {
   openAppBtn.disabled = phase === "launching";
   openAppBtn.onclick = async () => {
     openAppBtn.disabled = true;
+    const launch = tryLaunchCurrentSongInNativeApp(room, roundSongs);
+    nativeBreadcrumb("host:native-open-app", {
+      attempted: launch.attempted,
+      launched: launch.launched,
+      launchUrl: launch.url
+    });
+
+    if (!launch.attempted) {
+      alert("No launch link found for this song yet. Check that the song has a YouTube URL/video ID.");
+    } else if (!launch.launched) {
+      alert("Your browser blocked opening the playback app link. Allow pop-ups for this site, then tap Open App again.");
+    }
+
     try {
       await setNativePlaybackPhaseForHost("launching", "host:native-open-app");
     } catch (e) {
