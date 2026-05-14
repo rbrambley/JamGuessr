@@ -2740,10 +2740,14 @@ function renderHostNativeHandoffControls(room, hostControls, roundSongs) {
       launchUrl: launch.url
     });
 
+    let fallbackNavigateInTab = false;
+
     if (!launch.attempted) {
       alert("No launch link found for this song yet. Check that the song has a YouTube URL/video ID.");
     } else if (!launch.launched) {
-      alert("Your browser blocked opening the playback app link. Allow pop-ups for this site, then tap Open App again.");
+      fallbackNavigateInTab = confirm(
+        "Your browser blocked opening the playback app link. Click OK to open playback in this tab now, or Cancel to stay in game."
+      );
     }
 
     try {
@@ -2751,6 +2755,12 @@ function renderHostNativeHandoffControls(room, hostControls, roundSongs) {
     } catch (e) {
       alert("Could not update playback phase: " + (e?.message || "unknown error"));
     }
+
+    if (fallbackNavigateInTab && launch.url) {
+      window.location.assign(launch.url);
+      return;
+    }
+
     openAppBtn.disabled = false;
   };
   row.appendChild(openAppBtn);
